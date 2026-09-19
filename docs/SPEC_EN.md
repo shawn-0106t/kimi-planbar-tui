@@ -50,11 +50,11 @@ A terminal-resident dashboard for Windows (no tray, no windows, no animations) t
 
 ### 3.1 Repository structure
 
-A single crate at the repo root (not a workspace):
+Monorepo layout (mirroring the tray edition's kimi-planbar-tray): the Rust crate lives in `rust/` (not a workspace); a TS edition (Bun + OpenTUI) is planned under `ts/`, sharing this behavior contract:
 
-- `Cargo.toml` / `Cargo.lock` — package and binary name are both `kimi-planbar-tui`
-- `src/` — backend core modules (ported from the tray edition's `rust/src-tauri/src/` with Tauri removed) + `src/format.rs` (formatting helpers ported from the tray frontend's `src/common.ts`) + `src/app.rs` and `src/ui/` (all-new code: event loop and ratatui view layer)
-- `docs/` — this specification (`SPEC.md` / `SPEC_EN.md`)
+- `rust/Cargo.toml` / `rust/Cargo.lock` — package and binary name are both `kimi-planbar-tui`
+- `rust/src/` — backend core modules (ported from the tray edition's `rust/src-tauri/src/` with Tauri removed) + `rust/src/format.rs` (formatting helpers ported from the tray frontend's `src/common.ts`) + `rust/src/app.rs` and `rust/src/ui/` (all-new code: event loop and ratatui view layer)
+- `docs/` — this specification (`SPEC.md` / `SPEC_EN.md`), shared by both editions
 - Root: `AGENTS.md`, `README.md`, `README_CN.md`, `LICENSE`, `NOTICE`
 
 ### 3.2 Process and view model
@@ -76,7 +76,7 @@ tokio::select! {
 
 Redraw is event-driven: every event triggers an immediate redraw at the top of the loop, and a 250 ms heartbeat tick wakes the loop when idle so countdown text stays fresh. Countdown text is recomputed on every redraw (`format_reset` input is `reset_at - now`); no dedicated per-second timer is needed (see chapter 20).
 
-### 3.3 Backend modules (`src/`)
+### 3.3 Backend modules (`rust/src/`)
 
 | Module | Responsibility |
 |---|---|
@@ -107,7 +107,7 @@ No IPC, no separate frontend process: core modules and the view layer share one 
 
 ### 3.5 View layer
 
-One file per view under `src/ui/`. All colors come from the `theme.rs` palette (the single source of Moonlit/Moondark colors). External data (skill names/descriptions, API fields) is always rendered through ratatui text widgets — never splice external strings into terminal escape sequences.
+One file per view under `rust/src/ui/`. All colors come from the `theme.rs` palette (the single source of Moonlit/Moondark colors). External data (skill names/descriptions, API fields) is always rendered through ratatui text widgets — never splice external strings into terminal escape sequences.
 
 ## 4. Tech stack and key dependencies
 
@@ -149,13 +149,14 @@ No Tauri, no WebView, no YAML crate (frontmatter is parsed by hand, line-based).
 Prerequisites: Windows + Rust stable (MSVC). No Node.js, no WebView2, no other runtime.
 
 ```bash
-cargo build --release   # single static exe → target/release/kimi-planbar-tui.exe (~3-5 MB)
+cd rust
+cargo build --release   # single static exe → rust/target/release/kimi-planbar-tui.exe (~3-5 MB)
 cargo run               # dev run (debug builds work fine — there is no embedded frontend)
 ```
 
 Terminal requirements: **Windows Terminal / VS Code integrated terminal are the baseline**; legacy conhost needs `chcp 65001` first (switch to the UTF-8 code page) or box-drawing glyphs and CJK text render garbled.
 
-The release exe embeds a Windows VERSIONINFO resource and the app icon via `build.rs` (`winresource` build-dependency, `assets/icon.ico` — the Kimi logo, attribution in NOTICE): FileDescription / ProductName / CompanyName / LegalCopyright / Comments are fixed strings, while FileVersion/ProductVersion are taken automatically from `CARGO_PKG_VERSION` — **`Cargo.toml` stays the single version source**. An embedding failure only emits `cargo:warning` and never fails the build (machines without the Windows SDK rc.exe still compile; the exe simply lacks metadata).
+The release exe embeds a Windows VERSIONINFO resource and the app icon via `rust/build.rs` (`winresource` build-dependency, `rust/assets/icon.ico` — the Kimi logo, attribution in NOTICE): FileDescription / ProductName / CompanyName / LegalCopyright / Comments are fixed strings, while FileVersion/ProductVersion are taken automatically from `CARGO_PKG_VERSION` — **`rust/Cargo.toml` stays the single version source**. An embedding failure only emits `cargo:warning` and never fails the build (machines without the Windows SDK rc.exe still compile; the exe simply lacks metadata).
 
 ### 7.2 Testing
 
@@ -167,8 +168,8 @@ The release exe embeds a Windows VERSIONINFO resource and the app icon via `buil
 
 ### 7.3 Release
 
-1. Version bump: `Cargo.toml` (currently the only version source; sync any packaging script if one is added later)
-2. `cargo build --release` produces the single exe
+1. Version bump: `rust/Cargo.toml` (currently the only version source; sync any packaging script if one is added later)
+2. `cd rust && cargo build --release` produces the single exe
 3. Upload to GitHub Releases manually; **do not commit binaries** (release artifacts are gitignored)
 4. Versioning is independent of the tray edition (kimi-planbar-tray) and starts at 0.1.0
 

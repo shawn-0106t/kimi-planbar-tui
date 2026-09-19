@@ -50,11 +50,11 @@ Windows 终端常驻仪表盘（无托盘、无窗口、无动画），让 Kimi 
 
 ### 3.1 仓库结构
 
-单 crate 位于仓库根（非 workspace）：
+Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版（Bun + OpenTUI）规划位于 `ts/`，与本规格共享行为契约：
 
-- `Cargo.toml` / `Cargo.lock` — 包名与二进制名均为 `kimi-planbar-tui`
-- `src/` — 后端 core 模块（自托盘版 `rust/src-tauri/src/` 去 Tauri 化移植）+ `src/format.rs`（格式化 helper，移植自托盘版前端 `src/common.ts`）+ `src/app.rs` 与 `src/ui/`（全新代码：事件循环与 ratatui 视图层）
-- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）
+- `rust/Cargo.toml` / `rust/Cargo.lock` — 包名与二进制名均为 `kimi-planbar-tui`
+- `rust/src/` — 后端 core 模块（自托盘版 `rust/src-tauri/src/` 去 Tauri 化移植）+ `rust/src/format.rs`（格式化 helper，移植自托盘版前端 `src/common.ts`）+ `rust/src/app.rs` 与 `rust/src/ui/`（全新代码：事件循环与 ratatui 视图层）
+- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`），两版共享
 - 根目录：`AGENTS.md`、`README.md`、`README_CN.md`、`LICENSE`、`NOTICE`
 
 ### 3.2 进程与视图模型
@@ -76,7 +76,7 @@ tokio::select! {
 
 重绘为事件驱动：每个事件处理后立即在循环顶部重绘一帧；另有一个 250ms 心跳 tick 在无事件时唤醒循环，保证倒计时文案持续刷新。倒计时文案随每次重绘重算（`format_reset` 输入为 `reset_at - now`），无需独立秒级定时器（见第 20 章）。
 
-### 3.3 后端模块（`src/`）
+### 3.3 后端模块（`rust/src/`）
 
 | 模块 | 职责 |
 |---|---|
@@ -107,7 +107,7 @@ tokio::select! {
 
 ### 3.5 视图层
 
-`src/ui/` 下按视图分文件。所有颜色取自 `theme.rs` 调色板（Moonlit/Moondark 唯一色彩来源）。外部数据（skills 名称/描述、API 字段）一律经 ratatui 文本 widget 渲染，禁止把外部字符串拼进终端转义序列。
+`rust/src/ui/` 下按视图分文件。所有颜色取自 `theme.rs` 调色板（Moonlit/Moondark 唯一色彩来源）。外部数据（skills 名称/描述、API 字段）一律经 ratatui 文本 widget 渲染，禁止把外部字符串拼进终端转义序列。
 
 ## 4. 技术栈与关键依赖
 
@@ -149,13 +149,14 @@ tokio::select! {
 前提：Windows + Rust stable（MSVC）。无 Node.js、无 WebView2、无其他运行时。
 
 ```bash
-cargo build --release   # 单静态 exe → target/release/kimi-planbar-tui.exe（~3–5 MB）
+cd rust
+cargo build --release   # 单静态 exe → rust/target/release/kimi-planbar-tui.exe（~3–5 MB）
 cargo run               # 开发运行（debug 构建可直接用——没有内嵌前端的概念）
 ```
 
 运行终端要求：**Windows Terminal / VS Code 集成终端为基准**；legacy conhost 需先 `chcp 65001`（切 UTF-8 代码页），否则方框字符与中文乱码。
 
-release exe 由 `build.rs`（`winresource` build-dependency）嵌入 Windows VERSIONINFO 资源与应用图标 `assets/icon.ico`（Kimi logo，归属声明见 NOTICE）：FileDescription / ProductName / CompanyName / LegalCopyright / Comments 为固定字符串，FileVersion/ProductVersion 自动取自 `CARGO_PKG_VERSION`——**版本号唯一来源仍是 `Cargo.toml`**。嵌入失败只输出 `cargo:warning`，不使构建失败（无 Windows SDK rc.exe 的机器也能正常编译，只是 exe 缺元数据）。
+release exe 由 `rust/build.rs`（`winresource` build-dependency）嵌入 Windows VERSIONINFO 资源与应用图标 `rust/assets/icon.ico`（Kimi logo，归属声明见 NOTICE）：FileDescription / ProductName / CompanyName / LegalCopyright / Comments 为固定字符串，FileVersion/ProductVersion 自动取自 `CARGO_PKG_VERSION`——**版本号唯一来源仍是 `rust/Cargo.toml`**。嵌入失败只输出 `cargo:warning`，不使构建失败（无 Windows SDK rc.exe 的机器也能正常编译，只是 exe 缺元数据）。
 
 ### 7.2 测试
 
@@ -167,8 +168,8 @@ release exe 由 `build.rs`（`winresource` build-dependency）嵌入 Windows VER
 
 ### 7.3 发布
 
-1. 版本号同步：`Cargo.toml`（目前唯一的版本号来源；后续若加打包脚本再同步）
-2. `cargo build --release` 出单 exe
+1. 版本号同步：`rust/Cargo.toml`（目前唯一的版本号来源；后续若加打包脚本再同步）
+2. `cd rust && cargo build --release` 出单 exe
 3. 手动上传 GitHub Releases；**不要把二进制提交进仓库**（发布产物已 gitignore）
 4. 版本号独立于托盘版（kimi-planbar-tray），从 0.1.0 起步
 

@@ -79,7 +79,8 @@ Enable "Launch at Windows startup" in Settings (`s`). It writes a single per-use
 Requires Rust (stable, MSVC toolchain) on Windows. Nothing else — no Node.js, no WebView2.
 
 ```bash
-cargo build --release   # single static exe at target/release/kimi-planbar-tui.exe
+cd rust
+cargo build --release   # single static exe at rust/target/release/kimi-planbar-tui.exe
 ```
 
 Headless self-checks (useful in CI or after changes):
@@ -96,10 +97,10 @@ kimi-planbar-tui.exe --test-update   # print local/latest version + updateAvaila
 From the repo root:
 
 ```bash
-cargo install --path .   # installs the release exe to ~/.cargo/bin (already on PATH for Rust users)
+cargo install --path rust   # installs the release exe to ~/.cargo/bin (already on PATH for Rust users)
 ```
 
-After that, `kimi-planbar-tui` works in any terminal. Alternative: copy `target/release/kimi-planbar-tui.exe` to any folder on `PATH`.
+After that, `kimi-planbar-tui` works in any terminal. Alternative: copy `rust/target/release/kimi-planbar-tui.exe` to any folder on `PATH`.
 
 ## Security & privacy
 
@@ -108,8 +109,8 @@ After that, `kimi-planbar-tui` works in any terminal. Alternative: copy `target/
 
 ## Tech notes
 
-- Single Rust crate: ratatui + crossterm (TUI), tokio + reqwest + serde (async/HTTP/JSON), winreg (registry), windows 0.61 (Win32 console), regex + chrono
-- The release exe embeds a Windows VERSIONINFO resource and the app icon via `build.rs` (`winresource` build-dependency, `assets/icon.ico`); FileVersion/ProductVersion derive automatically from `CARGO_PKG_VERSION`, and embedding failure only warns (machines without the Windows SDK rc.exe still compile)
+- Single Rust crate in `rust/` (a TS edition with Bun + OpenTUI is planned under `ts/`): ratatui + crossterm (TUI), tokio + reqwest + serde (async/HTTP/JSON), winreg (registry), windows 0.61 (Win32 console), regex + chrono
+- The release exe embeds a Windows VERSIONINFO resource and the app icon via `rust/build.rs` (`winresource` build-dependency, `rust/assets/icon.ico`); FileVersion/ProductVersion derive automatically from `CARGO_PKG_VERSION`, and embedding failure only warns (machines without the Windows SDK rc.exe still compile)
 - Backend modules are ported 1:1 from the sibling tray app [kimi-planbar-tray](https://github.com/shawn-0106t/kimi-planbar-tray) (Tauri edition) with Tauri removed; the shared behavior contract lives in `docs/SPEC.md`
 - Quota logic adapted from [kimi-planbar](https://github.com/baigong-ai/kimi-planbar) (MIT) — same token sources, endpoint, and cache/retry strategy
 - UI design lineage: [KimiCodeBar](https://github.com/xifandev/KimiCodeBar) (MIT) by [@xifandev](https://github.com/xifandev); skills feature referenced from [kimi-code-dashboard](https://github.com/perinchiang/kimi-code-dashboard) by [@perinchiang](https://github.com/perinchiang)

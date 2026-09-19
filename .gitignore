@@ -1,8 +1,13 @@
-/target
+target/
 **/*.rs.bk
 Cargo.lock.bak
 
 # Release artifacts (uploaded to GitHub Releases manually; never commit binaries)
 *.zip
+*.exe
 SHA256SUMS.txt
 /dist
+
+# ts/ edition (Bun)
+node_modules/
+ts/dist/

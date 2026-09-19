@@ -6,9 +6,11 @@ Guidance for AI coding agents working in this repository. Read this first; it as
 
 Kimi Planbar TUI is a **terminal-resident dashboard** (no tray, no windows, no animations) that shows Kimi Code plan quota — 5-hour window + weekly usage with reset countdowns, Extra Usage booster wallet, Kimi Code CLI version check, and a read-only skills list — inside a terminal. It reads the local Kimi Code CLI OAuth token (read-only) and calls `GET https://api.kimi.com/coding/v1/usages`.
 
-Current version: **0.1.0** (kept in `Cargo.toml`; versioning is **independent** of the sibling tray app `kimi-planbar-tray`).
+This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition; a TS edition (Bun + OpenTUI) is planned under `ts/`, sharing the same behavior contract.
 
-Stack: Rust stable (MSVC) + **ratatui** (TUI framework) + **crossterm** (terminal backend/events) + tokio + reqwest + serde + winreg + windows 0.61 (Win32 console APIs, for minimal-window-on-launch) + regex + chrono. No Tauri, no WebView. Distribution is a single static release exe (~3–5 MB) via `cargo build --release`.
+Current version: **0.1.0** (kept in `rust/Cargo.toml`; versioning is **independent** of the sibling tray app `kimi-planbar-tray`).
+
+Stack: Rust stable (MSVC) + **ratatui** (TUI framework) + **crossterm** (terminal backend/events) + tokio + reqwest + serde + winreg + windows 0.61 (Win32 console APIs, for minimal-window-on-launch) + regex + chrono. No Tauri, no WebView. Distribution is a single static release exe (~3–5 MB) via `cargo build --release` in `rust/`.
 
 This repo is a standalone derivative of the tray app (`kimi-planbar-tray`): the backend modules were ported 1:1 from `rust/src-tauri/src/` with the Tauri dependencies removed. **The behavior contract is `docs/SPEC.md`** (Chinese; English translation at `docs/SPEC_EN.md`, identical chapter numbering) — it keeps the same chapter numbering as the tray edition's SPEC, with chapters 10 (window spec), 14 (tray behavior), and 15 (animations) explicitly marked not applicable. Consult it before changing behavior; any behavior change must update the corresponding SPEC chapter.
 
@@ -17,25 +19,28 @@ Data contract shared with the tray edition: same credential chain, same `setting
 ## Repository layout
 
 ```
-├── Cargo.toml / Cargo.lock     # single crate at repo root (binary: kimi-planbar-tui)
-├── build.rs                    # embeds VERSIONINFO + app icon via winresource (warns, never fails the build)
-├── assets/icon.ico             # app icon (official Kimi logo © Moonshot AI; attribution in NOTICE)
-├── src/
-│   ├── main.rs                 # entry; --test-fetch / --test-update self-checks, then TUI bootstrap
-│   ├── credentials.rs          # token chain (KIMI_CODE_HOME-aware kimi_home): credentials/kimi-code.json -> config.toml fallback
-│   ├── quota.rs                # HTTP fetch + defensive JSON parsing (see traps below)
-│   ├── polling.rs              # refresh scheduling: 2 s first refresh, 30 s fast retry on failure, keep-last-good; mpsc -> UI
-│   ├── settings.rs             # settings.json persistence, portable.dat detection, HKCU Run autostart
-│   ├── skills.rs               # read-only scan of local Kimi Code skills (+ frontmatter parser unit tests)
-│   ├── update.rs               # kimi --version + changelog Range request + GitHub API fallback
-│   ├── theme.rs                # Moonlit/Moondark palettes as ratatui Color::Rgb; system theme via 30 s registry polling
-│   ├── state.rs                # AppState shared state (last-good cache, skills cache, manual-refresh debounce)
-│   ├── app.rs                  # TUI bootstrap + event loop (tokio::select!; new code)
-│   ├── format.rs               # FormatReset / FmtYuan / percent display helpers (ported from the tray edition's src/common.ts)
-│   └── ui/                     # ratatui view layer (new code): dashboard.rs, settings_view.rs, skills_view.rs
+├── rust/                       # Rust edition: single crate (package + binary name: kimi-planbar-tui)
+│   ├── Cargo.toml / Cargo.lock
+│   ├── build.rs                # embeds VERSIONINFO + app icon via winresource (warns, never fails the build)
+│   ├── assets/icon.ico         # app icon (official Kimi logo © Moonshot AI; attribution in NOTICE)
+│   └── src/
+│       ├── main.rs             # entry; --test-fetch / --test-update self-checks, then TUI bootstrap
+│       ├── credentials.rs      # token chain (KIMI_CODE_HOME-aware kimi_home): credentials/kimi-code.json -> config.toml fallback
+│       ├── quota.rs            # HTTP fetch + defensive JSON parsing (see traps below)
+│       ├── polling.rs          # refresh scheduling: 2 s first refresh, 30 s fast retry on failure, keep-last-good; mpsc -> UI
+│       ├── settings.rs         # settings.json persistence, portable.dat detection, HKCU Run autostart
+│       ├── skills.rs           # read-only scan of local Kimi Code skills (+ frontmatter parser unit tests)
+│       ├── update.rs           # kimi --version + changelog Range request + GitHub API fallback
+│       ├── theme.rs            # Moonlit/Moondark palettes as ratatui Color::Rgb; system theme via 30 s registry polling
+│       ├── state.rs            # AppState shared state (last-good cache, skills cache, manual-refresh debounce)
+│       ├── app.rs              # TUI bootstrap + event loop (tokio::select!; new code)
+│       ├── format.rs           # FormatReset / FmtYuan / percent display helpers (ported from the tray edition's src/common.ts)
+│       └── ui/                 # ratatui view layer (new code): dashboard.rs, settings_view.rs, skills_view.rs
+├── ts/                         # (planned) TS edition: Bun + OpenTUI, same SPEC contract, independent version
 ├── docs/
-│   ├── SPEC.md                 # authoritative behavior contract (Chinese)
-│   └── SPEC_EN.md              # English translation, identical chapter numbering
+│   ├── SPEC.md                 # authoritative behavior contract (Chinese), shared by both editions
+│   ├── SPEC_EN.md              # English translation, identical chapter numbering
+│   └── TS-EDITION-PLAN.md      # TS edition (Bun + OpenTUI) implementation plan: decisions, smoke-test findings, M1-M4 steps
 ├── AGENTS.md / README.md / README_CN.md
 ├── LICENSE                     # MIT © Shawn Qi
 └── NOTICE                      # portions © baigong-ai / kimi-planbar
@@ -46,17 +51,18 @@ Data contract shared with the tray edition: same credential chain, same `setting
 Prerequisites: Windows + Rust stable (MSVC toolchain). Nothing else — no Node.js, no WebView2.
 
 ```bash
-cargo build --release   # single static exe at target/release/kimi-planbar-tui.exe (~3-5 MB)
+cd rust
+cargo build --release   # single static exe at rust/target/release/kimi-planbar-tui.exe (~3-5 MB)
 cargo run               # dev run (debug build works fine — there is no embedded frontend)
 ```
 
-For shell-command use: `cargo install --path .` from the repo root installs the release exe to `~/.cargo/bin` (on PATH for Rust users), after which `kimi-planbar-tui` works in any terminal.
+For shell-command use: `cargo install --path rust` from the repo root installs the release exe to `~/.cargo/bin` (on PATH for Rust users), after which `kimi-planbar-tui` works in any terminal.
 
 Run the exe inside a terminal: **Windows Terminal** or the **VS Code integrated terminal** are the baseline targets. Legacy conhost works but needs `chcp 65001` first (UTF-8 code page), or box-drawing glyphs and CJK text render garbled.
 
 ## Testing / self-checks
 
-- `cargo test` — unit tests for the skills frontmatter parser (ported from the tray edition) and quota JSON parsing (string/number mixed fields, `isEnabled=false`, unit rounding, divide-by-zero). This is the first real parsing test suite in the project family.
+- `cargo test` (in `rust/`) — unit tests for the skills frontmatter parser (ported from the tray edition) and quota JSON parsing (string/number mixed fields, `isEnabled=false`, unit rounding, divide-by-zero). This is the first real parsing test suite in the project family.
 - Headless self-check args (SPEC chapter 19), printed to stdout then exit:
 
 ```bash
@@ -66,12 +72,12 @@ kimi-planbar-tui.exe --test-update   # one line: local=... latest=... updateAvai
 
 There is **no `--test-ui`** (no windows to construct) and **no single-instance check** — the self-checks work while other instances are running simply because nothing is locked. To verify behavioral parity with the tray edition, run both apps' `--test-fetch` back to back on the same machine and diff the JSON field by field.
 
-After changes: `cargo build` + `cargo test`, then run `--test-fetch` and `--test-update` against the built exe, and eyeball the TUI in Windows Terminal under both themes.
+After changes: `cargo build` + `cargo test` (in `rust/`), then run `--test-fetch` and `--test-update` against the built exe, and eyeball the TUI in Windows Terminal under both themes.
 
 ## Release process
 
-1. Bump the version in `Cargo.toml` — the **only** version bump location: the exe's VERSIONINFO FileVersion/ProductVersion derive from `CARGO_PKG_VERSION` automatically via `build.rs` (winresource). (Sync any packaging script if one is added later — keep it simple.)
-2. `cargo build --release`.
+1. Bump the version in `rust/Cargo.toml` — the **only** version bump location: the exe's VERSIONINFO FileVersion/ProductVersion derive from `CARGO_PKG_VERSION` automatically via `build.rs` (winresource). (Sync any packaging script if one is added later — keep it simple.)
+2. `cd rust && cargo build --release`.
 3. Distribute the single exe via GitHub Releases (manual upload). **Do not commit binaries**; release archives are gitignored.
 4. The app is unsigned — SmartScreen warnings are expected and documented in the README.
 
