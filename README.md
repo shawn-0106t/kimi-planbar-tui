@@ -110,7 +110,7 @@ After that, `kimi-planbar-tui` works in any terminal. Alternative: copy `target/
 
 - Single Rust crate: ratatui + crossterm (TUI), tokio + reqwest + serde (async/HTTP/JSON), winreg (registry), windows 0.61 (Win32 console), regex + chrono
 - The release exe embeds a Windows VERSIONINFO resource and the app icon via `build.rs` (`winresource` build-dependency, `assets/icon.ico`); FileVersion/ProductVersion derive automatically from `CARGO_PKG_VERSION`, and embedding failure only warns (machines without the Windows SDK rc.exe still compile)
-- Backend modules are ported 1:1 from the sibling tray app [kimi-planbar-tray](../kimi-planbar-tray) (Tauri edition) with Tauri removed; the shared behavior contract lives in `docs/SPEC.md`
+- Backend modules are ported 1:1 from the sibling tray app [kimi-planbar-tray](https://github.com/shawn-0106t/kimi-planbar-tray) (Tauri edition) with Tauri removed; the shared behavior contract lives in `docs/SPEC.md`
 - Quota logic adapted from [kimi-planbar](https://github.com/baigong-ai/kimi-planbar) (MIT) — same token sources, endpoint, and cache/retry strategy
 - UI design lineage: [KimiCodeBar](https://github.com/xifandev/KimiCodeBar) (MIT) by [@xifandev](https://github.com/xifandev); skills feature referenced from [kimi-code-dashboard](https://github.com/perinchiang/kimi-code-dashboard) by [@perinchiang](https://github.com/perinchiang)
 - Kimi logo and brand copyright belong to **Moonshot AI** — this is an unofficial community tool, not affiliated with Moonshot AI

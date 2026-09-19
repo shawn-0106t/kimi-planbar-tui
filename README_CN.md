@@ -110,7 +110,7 @@ cargo install --path .   # 安装 release exe 到 ~/.cargo/bin（Rust 用户的 
 
 - 单 Rust crate：ratatui + crossterm（TUI），tokio + reqwest + serde（异步/HTTP/JSON），winreg（注册表），windows 0.61（Win32 控制台），regex + chrono
 - release exe 通过 `build.rs`（`winresource` build-dependency）嵌入 Windows VERSIONINFO 资源与应用图标（`assets/icon.ico`）；FileVersion/ProductVersion 自动取自 `CARGO_PKG_VERSION`，嵌入失败只告警不中断构建（无 Windows SDK rc.exe 的机器也能编译）
-- 后端模块自姊妹项目托盘版 kimi-planbar-tray（Tauri 版）去掉 Tauri 后 1:1 移植；共享行为契约见 `docs/SPEC.md`
+- 后端模块自姊妹项目托盘版 [kimi-planbar-tray](https://github.com/shawn-0106t/kimi-planbar-tray)（Tauri 版）去掉 Tauri 后 1:1 移植；共享行为契约见 `docs/SPEC.md`
 - 额度逻辑移植自 [kimi-planbar](https://github.com/baigong-ai/kimi-planbar)（MIT）——token 来源、接口与缓存/重试策略一致
 - UI 设计源流：[KimiCodeBar](https://github.com/xifandev/KimiCodeBar)（MIT），作者 [@xifandev](https://github.com/xifandev)；Skills 功能参考自 [kimi-code-dashboard](https://github.com/perinchiang/kimi-code-dashboard)，作者 [@perinchiang](https://github.com/perinchiang)
 - Kimi logo 与品牌版权归 **Moonshot AI** 所有——本项目为非官方社区工具，与 Moonshot AI 无隶属关系
