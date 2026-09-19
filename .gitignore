@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Release artifacts (uploaded to GitHub Releases manually; never commit binaries)
+*.zip
+SHA256SUMS.txt
+/dist

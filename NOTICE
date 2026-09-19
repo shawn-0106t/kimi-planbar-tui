@@ -1,0 +1,3 @@
+The quota-endpoint and credential-loading logic in this project is derived
+from kimi-planbar (https://github.com/baigong-ai/kimi-planbar),
+Copyright (c) 2026 baigong-ai, used under the MIT License.

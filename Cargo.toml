@@ -1,0 +1,28 @@
+[package]
+name = "kimi-planbar-tui"
+version = "0.1.0"
+description = "Kimi Code quota terminal dashboard (pure TUI port of KimiPlanbarTray, ratatui + crossterm)"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "sync"] }
+reqwest = { version = "0.12", features = ["json"] }
+regex = "1"
+chrono = { version = "0.4", features = ["serde"] }
+winreg = "0.52"
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Console"] }
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
