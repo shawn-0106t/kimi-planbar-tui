@@ -1,7 +1,7 @@
 import { describe, expect, test } from "./bun-shim.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { collectSkills, parseFrontmatterFromBytes, scanSkills, sortSkills } from "../src/core/skills.ts";
+import { collectSkills, parseFrontmatter, parseFrontmatterFromBytes, scanSkills, sortSkills } from "../src/core/skills.ts";
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -92,11 +92,25 @@ describe("frontmatter parser (SPEC 21.2)", () => {
     expect(fm("---\ndescription: >-\n  folded\n")[1]).toBe(">-");
   });
 
-  test("only the first 4 KiB are read", () => {
+  test("the parser stops at 4 KiB of the bytes it is handed", () => {
     const long = "---\ndescription: " + "x".repeat(5000) + "\nname: Late\n---\n";
     const parsed = parseFrontmatterFromBytes(bytes(long));
     expect(parsed[1]).toHaveLength(4096 - "---\ndescription: ".length);
     expect(parsed[0]).toBeNull();
+  });
+
+  test("the 4 KiB window also holds through the real file path (SPEC 21.2)", () => {
+    const fx = fixture();
+    // This pins the file path end to end (readFileBytes + parser agree on the
+    // window). It cannot pin the *physical* read bound: the parser caps at 4096
+    // itself, so a whole-file read is indistinguishable through any public API —
+    // that half of Rust's `take(4096)` is a memory-safety property, code-reviewed
+    // only.
+    fx.skill("big", "---\ndescription: " + "x".repeat(5000) + "\nname: Late\n---\n");
+    const [name, description] = parseFrontmatter(join(fx.dir, "big", "SKILL.md"));
+    expect(description).toHaveLength(4096 - "---\ndescription: ".length);
+    expect(name).toBeNull();
+    rmSync(fx.dir, { recursive: true, force: true });
   });
 });
 

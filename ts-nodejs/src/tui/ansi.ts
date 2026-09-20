@@ -3,14 +3,21 @@
 // widget-level escape immunity, so every external string (skill names, API
 // error text) must pass through sanitize() before entering a frame (SPEC 20).
 
-/** Strip ANSI escape sequences (CSI/OSC/ESC+char) first, then any remaining
- *  C0/DEL/C1 controls: anything that could move the cursor or change terminal
- *  state must not reach a frame, and a stripped sequence should not leave its
- *  parameter bytes behind as visible garbage either. */
+/** Strip ANSI escape sequences (CSI/OSC/string sequences/ESC+char) first, then
+ *  any remaining C0/DEL/C1 controls: anything that could move the cursor or
+ *  change terminal state must not reach a frame, and a stripped sequence should
+ *  not leave its parameter bytes behind as visible garbage either. The string
+ *  sequences (OSC `ESC ]`, DCS `ESC P`, SOS `ESC X`, PM `ESC ^`, APC `ESC _`)
+ *  are stripped with their payload through the BEL/ST terminator — or through
+ *  the end of the input when the terminator never comes, or the payload would
+ *  stay behind as visible text. */
 export function sanitize(text: string): string {
   // eslint-disable-next-line no-control-regex
   return text
-    .replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])/g, "")
+    .replace(
+      /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\|$)|[PX^_][^\x1b]*(?:\x1b\\|$)|[@-Z\\-_])/g,
+      "",
+    )
     .replace(/[\x00-\x1f\x7f-\x9f]/g, "");
 }
 

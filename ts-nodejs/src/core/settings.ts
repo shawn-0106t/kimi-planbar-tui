@@ -52,6 +52,12 @@ export const settingsPath = (dir: string): string => join(dir, "settings.json");
 
 const I64_MAX = 9223372036854775807n;
 const I64_MIN = -(1n << 63n);
+/** `Number(bigint)` lies beyond 2^53; clamp to the exactly-representable
+ *  range so the value we keep (and re-serialize) is never silently rounded.
+ *  Polling clamps the delay to the setTimeout ceiling anyway, so behavior is
+ *  unchanged for every sane value. */
+const SAFE_MAX = BigInt(Number.MAX_SAFE_INTEGER);
+const SAFE_MIN = -SAFE_MAX;
 
 /** serde's `#[serde(default)]` plus a whole-document failure: a type mismatch
  *  on any single key discards all three values, while a missing key alone
@@ -81,7 +87,8 @@ export function parseSettingsJson(text: string): SettingsData {
     if (refreshNode.kind !== "num" || !/^-?\d+$/.test(refreshNode.token)) return fallback;
     const value = BigInt(refreshNode.token);
     if (value < I64_MIN || value > I64_MAX) return fallback;
-    refreshMinutes = Number(value);
+    const clamped = value > SAFE_MAX ? SAFE_MAX : value < SAFE_MIN ? SAFE_MIN : value;
+    refreshMinutes = Number(clamped);
   }
   let autoStart = fallback.autoStart;
   if (autoStartNode !== undefined) {

@@ -18,6 +18,16 @@ describe("wcwidth benchmark charset (plan §2.3)", () => {
     expect(cw("한")).toBe(2);
   });
 
+  test("Hangul Jamo Extended-B measures 2 cells (EAW W)", () => {
+    expect(charWidth(0xd7b0)).toBe(2); // first codepoint of the first range
+    expect(charWidth(0xd7c6)).toBe(2); // last of the first range
+    expect(charWidth(0xd7cb)).toBe(2); // first of the second range
+    expect(charWidth(0xd7fb)).toBe(2); // last of the second range
+    // The unassigned gaps between the ranges stay narrow.
+    expect(charWidth(0xd7a4)).toBe(1);
+    expect(charWidth(0xd7c7)).toBe(1);
+  });
+
   test("fullwidth forms and emoji measure 2 cells", () => {
     expect(cw("！")).toBe(2); // U+FF01
     expect(cw("😀")).toBe(2); // U+1F600, outside the BMP

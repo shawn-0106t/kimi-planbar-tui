@@ -37,10 +37,12 @@ export function createTerminal(
   stdin: NodeJS.ReadStream = process.stdin,
 ): Terminal {
   stdout.write(TERMINAL_ENTER);
+  // Raw mode only exists on a TTY; the headless self-checks never get here,
+  // and a piped stdin simply delivers no keypresses. Declared outside the try
+  // so the catch can switch it back off — a failure after raw?.(true) must not
+  // leave the console in raw mode (SPEC 20).
+  const raw = stdin.isTTY ? stdin.setRawMode.bind(stdin) : null;
   try {
-    // Raw mode only exists on a TTY; the headless self-checks never get here,
-    // and a piped stdin simply delivers no keypresses.
-    const raw = stdin.isTTY ? stdin.setRawMode.bind(stdin) : null;
     raw?.(true);
     readline.emitKeypressEvents(stdin);
 
@@ -74,15 +76,37 @@ export function createTerminal(
         if (destroyed) return;
         destroyed = true;
         stdin.removeListener("keypress", keyListener);
-        raw?.(false);
-        stdout.write(TERMINAL_LEAVE);
+        // Both restore steps are best-effort: on a broken pipe or a dead
+        // console a throw here would mask whatever error brought us down
+        // this path (SPEC 20).
+        try {
+          raw?.(false);
+        } catch {
+          // nothing left to restore to
+        }
+        try {
+          stdout.write(TERMINAL_LEAVE);
+        } catch {
+          // the console is gone either way
+        }
       },
     };
   } catch (err) {
     // If setup fails after ENTER (e.g. setRawMode throws), the process-level
     // handlers in app.ts never saw a Terminal — restore the console here so
-    // it is not stranded in the alternate screen (SPEC 20).
-    stdout.write(TERMINAL_LEAVE);
+    // it is not stranded in the alternate screen (SPEC 20). Raw mode may
+    // already be on at this point, so switch it off too; both restores are
+    // best-effort and must not mask the original error.
+    try {
+      raw?.(false);
+    } catch {
+      // the original error below is the one that matters
+    }
+    try {
+      stdout.write(TERMINAL_LEAVE);
+    } catch {
+      // ditto: restore is best-effort, the setup error is the one to throw
+    }
     throw err;
   }
 }

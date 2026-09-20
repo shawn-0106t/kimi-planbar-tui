@@ -206,9 +206,11 @@ export function formatDateTimeLocal(dt: RustDateTime): string {
   return `${date}T${time}${autoSiFraction(dt.nanos)}${sign}${pad2(abs / 60)}:${pad2(abs % 60)}`;
 }
 
-/** `NaiveDateTime::and_local_timezone(Local).single()` — a local wall time that
- *  does not exist or is ambiguous (DST) has no single mapping and is rejected.
- *  Round-tripping the wall fields through Date proves which side of that we are on. */
+/** Chrono's `NaiveDateTime::and_local_timezone(Local)` rejects a wall time that
+ *  does not exist in the local zone; this round-trip through Date catches
+ *  exactly that. It is NOT `.single()`: a DST-ambiguous wall time silently
+ *  maps to one of the two instants instead of being rejected, because JS has
+ *  no way to ask whether a second mapping exists. */
 export function localizeNaiveSingle(
   y: number,
   mo: number,
@@ -409,6 +411,10 @@ const JSON_NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/;
  *  which is how a `1e400` payload reaches the `JsonException` branch. */
 export function parseJsonValue(text: string): JValue {
   let pos = 0;
+  // serde_json's default recursion limit: deeper nesting is a parse error,
+  // not a stack overflow.
+  const MAX_DEPTH = 128;
+  let depth = 0;
 
   const fail = (where: string): never => {
     throw new RustJsonError(`${where} at line 1 column ${pos + 1}`);
@@ -422,8 +428,15 @@ export function parseJsonValue(text: string): JValue {
     ws();
     const start = text[pos];
     if (start === undefined) return fail("expected value");
-    if (start === "{") return object();
-    if (start === "[") return array();
+    if (start === "{" || start === "[") {
+      depth++;
+      if (depth > MAX_DEPTH) return fail("recursion limit exceeded");
+      try {
+        return start === "{" ? object() : array();
+      } finally {
+        depth--;
+      }
+    }
     if (start === '"') return { kind: "str", value: jsonString() };
     if (start === "t") return literal("true", { kind: "bool", value: true } as JValue);
     if (start === "f") return literal("false", { kind: "bool", value: false } as JValue);
@@ -480,7 +493,24 @@ export function parseJsonValue(text: string): JValue {
           const hex = text.slice(pos, pos + 4);
           if (!/^[0-9a-fA-F]{4}$/.test(hex)) return fail("invalid escape");
           pos += 4;
-          out += String.fromCharCode(Number.parseInt(hex, 16));
+          const code = Number.parseInt(hex, 16);
+          // serde_json pairs surrogates while decoding: a high surrogate must be
+          // immediately followed by an escaped low one, and a lone low surrogate
+          // is a parse error too — never emit half a pair into a JS string.
+          if (code >= 0xd800 && code <= 0xdbff) {
+            const hex2 =
+              text[pos] === "\\" && text[pos + 1] === "u" ? text.slice(pos + 2, pos + 6) : "";
+            const code2 = /^[0-9a-fA-F]{4}$/.test(hex2) ? Number.parseInt(hex2, 16) : -1;
+            if (code2 < 0xdc00 || code2 > 0xdfff) {
+              return fail("lone leading surrogate in hex escape");
+            }
+            pos += 6;
+            out += String.fromCharCode(code, code2);
+          } else if (code >= 0xdc00 && code <= 0xdfff) {
+            return fail("lone trailing surrogate in hex escape");
+          } else {
+            out += String.fromCharCode(code);
+          }
         } else {
           const mapped = ESCAPES[esc];
           if (mapped === undefined) return fail("invalid escape");

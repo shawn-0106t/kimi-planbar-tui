@@ -61,10 +61,19 @@ describe("parseSettingsJson load rules (SPEC 18.2)", () => {
     }
   });
 
-  test("a number out of i64 range is a type error", () => {
+  test("beyond i64 is a type error; beyond 2^53 clamps to the exact range", () => {
     expect(parseSettingsJson('{"RefreshMinutes":9223372036854775808}')).toEqual(defaultSettings());
+    expect(parseSettingsJson('{"RefreshMinutes":-9223372036854775809}')).toEqual(defaultSettings());
+    // i64 max is still a valid i64, but Number() would round it, so the value
+    // is clamped to the exactly-representable range instead (SPEC 22.3).
     expect(parseSettingsJson('{"RefreshMinutes":9223372036854775807}').refreshMinutes).toBe(
-      9223372036854775807,
+      Number.MAX_SAFE_INTEGER,
+    );
+    expect(parseSettingsJson('{"RefreshMinutes":-9223372036854775808}').refreshMinutes).toBe(
+      -Number.MAX_SAFE_INTEGER,
+    );
+    expect(parseSettingsJson('{"RefreshMinutes":9007199254740991}').refreshMinutes).toBe(
+      9007199254740991,
     );
   });
 

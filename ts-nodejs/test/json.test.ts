@@ -277,3 +277,28 @@ describe("Rust text idioms", () => {
   });
 });
 
+describe("recursion limit (serde_json parity)", () => {
+  test("128 levels parse and 129 is a parse error, not a stack overflow", () => {
+    const within = "[".repeat(128) + "]".repeat(128);
+    expect(() => parseJsonValue(within)).not.toThrow();
+    const beyond = "[".repeat(129) + "]".repeat(129);
+    expect(() => parseJsonValue(beyond)).toThrow(RustJsonError);
+  });
+});
+
+describe("\\u surrogate escapes (serde_json parity)", () => {
+  test("an escaped pair decodes to one code point", () => {
+    const value = parseJsonValue('{"s":"\\ud83d\\ude00"}');
+    const member = value.kind === "obj" ? value.members.get("s") : undefined;
+    expect(member?.kind === "str" ? member.value : null).toBe("😀");
+  });
+
+  test("a lone high or low surrogate is a parse error", () => {
+    expect(() => parseJsonValue('{"s":"\\ud800"}')).toThrow(RustJsonError);
+    expect(() => parseJsonValue('{"s":"\\ud800x"}')).toThrow(RustJsonError);
+    expect(() => parseJsonValue('{"s":"\\ud800\\u0041"}')).toThrow(RustJsonError);
+    expect(() => parseJsonValue('{"s":"\\udc00"}')).toThrow(RustJsonError);
+    expect(() => parseJsonValue('{"s":"\\ud800\\ud800"}')).toThrow(RustJsonError);
+  });
+});
+

@@ -1,7 +1,7 @@
 // Read-only Kimi Code skill scanner, a 1:1 port of rust/src/skills.rs (SPEC 21.2).
 // No writes, no watchers, no polling: the caller scans once and caches.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homeDir, kimiHome } from "./credentials.ts";
 import {
@@ -53,11 +53,9 @@ export function parseFrontmatterFromBytes(bytes: Uint8Array): [string | null, st
 }
 
 export function parseFrontmatter(path: string): [string | null, string | null] {
-  try {
-    return parseFrontmatterFromBytes(new Uint8Array(readFileSync(path)));
-  } catch {
-    return [null, null];
-  }
+  const bytes = readFileBytes(path);
+  if (bytes === null) return [null, null];
+  return parseFrontmatterFromBytes(bytes);
 }
 
 const isDirectory = (path: string): boolean => {
@@ -109,9 +107,19 @@ const listDir = (dir: string): { name: string; path: string }[] => {
   }
 };
 
+/** Physically reads at most the first 4 KiB (mirrors Rust's
+ *  `File::take(4096)`): a hostile multi-hundred-MB SKILL.md under a managed
+ *  plugin directory must not be slurped whole. */
 const readFileBytes = (path: string): Uint8Array | null => {
   try {
-    return new Uint8Array(readFileSync(path));
+    const fd = openSync(path, "r");
+    try {
+      const buf = Buffer.alloc(FRONTMATTER_BYTES);
+      const read = readSync(fd, buf, 0, FRONTMATTER_BYTES, 0);
+      return new Uint8Array(buf.subarray(0, read));
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return null;
   }

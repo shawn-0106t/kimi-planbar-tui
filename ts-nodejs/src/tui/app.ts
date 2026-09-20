@@ -92,7 +92,7 @@ type View = "dashboard" | "settings" | "skills";
 export async function runTui(): Promise<void> {
   shrinkFreshWindow();
   const settings = loadSettings();
-  const eff = effectiveTheme(settings.theme, systemThemeSync());
+  const eff = effectiveTheme(settings.theme, () => systemThemeSync());
   const state: AppState = createAppState(settings, eff);
 
   // Late-binding holders so destroyAll() is safe to call before the terminal
@@ -256,7 +256,7 @@ export async function runTui(): Promise<void> {
     saveSettings(draft);
     applyAutoStart(draft);
     state.settings = draft;
-    state.effectiveTheme = effectiveTheme(draft.theme, refreshSystemThemeCache());
+    state.effectiveTheme = effectiveTheme(draft.theme, () => systemThemeSync());
     polling.reschedule();
     app.settingsDraft = null;
     app.view = "dashboard";
@@ -370,7 +370,7 @@ export async function runTui(): Promise<void> {
     // SPEC 20: theme=system polls the registry every 30 s; a change redraws
     // immediately, like every other event.
     if (state.settings.theme !== "system") return;
-    const next = effectiveTheme(state.settings.theme, refreshSystemThemeCache());
+    const next = effectiveTheme(state.settings.theme, () => refreshSystemThemeCache());
     if (next === state.effectiveTheme) return;
     state.effectiveTheme = next;
     draw();

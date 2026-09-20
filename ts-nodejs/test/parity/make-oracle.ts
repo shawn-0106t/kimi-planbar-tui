@@ -206,6 +206,35 @@ fn main() {
         "not a date",
         "2030-13-45T00:00:00+08:00",
     ];
+    // REVIEW-M1 Minor 4/5: where the chrono ladder actually stops. The space in
+    // "%Y-%m-%d %H:%M:%S" is an Item::Space (lenient), the T in
+    // "%Y-%m-%dT%H:%M:%S" is an Item::Literal, and RFC 3339 has its own rules —
+    // which of these accepts a lowercase t, a glued date, a 61st minute or a
+    // "+0899" offset is Rust's call, not ours, so it is pinned here.
+    times.extend(vec![
+        "2030-01-01t00:00:00+08:00",
+        "2030-01-01t00:00:00",
+        "2030-01-0100:00:00",
+        "2030-01-01  00:00:00",
+        "2030-01-01T00:61:00+08:00",
+        "2030-01-01T00:00:61+08:00",
+        "2030-01-01T24:00:00+08:00",
+        "2030-01-01T00:00:00+0899",
+        "2030-01-01T00:00:00+08:0",
+        "2030-02-30T00:00:00",
+    ]);
+    // REVIEW-M1 Minor 4, second half: the TS WITH_OFFSET separator is a
+    // character class accepting both T cases, which is wider than the chrono
+    // ladder wherever a lowercase t meets a non-RFC-3339 offset shape. Whether
+    // each of these parses is Rust's call.
+    times.extend(vec![
+        "2030-01-01t00:00:00 +08:00",
+        "2030-01-01t00:00:00+0800",
+        "2030-01-01t00:00:00Z",
+        "2030-01-01 00:00:00Z",
+        "2030-01-01 00:00:00 +0800",
+        "2030-01-01T00:00:00+24:00",
+    ]);
     let mut tlines: Vec<String> = Vec::new();
     for s in times {
         let parsed = parse_reset_time(s);

@@ -23,6 +23,8 @@ const WIDE_RANGES: [number, number][] = [
   [0xa000, 0xa4cf], // Yi
   [0xa960, 0xa97f], // Hangul Jamo Extended-A
   [0xac00, 0xd7a3], // Hangul Syllables
+  [0xd7b0, 0xd7c6], // Hangul Jamo Extended-B (EAW W)
+  [0xd7cb, 0xd7fb], // Hangul Jamo Extended-B (EAW W)
   [0xf900, 0xfaff], // CJK Compatibility Ideographs
   [0xfe10, 0xfe19], // vertical forms
   [0xfe30, 0xfe52], // CJK compatibility forms

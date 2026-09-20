@@ -27,6 +27,28 @@ describe("sanitize (plan §2.2 — the injection firewall)", () => {
     expect(out).not.toContain("\x1b[31m");
     expect(out).toContain("evil-HACK-skill");
   });
+
+  test("terminated OSC/DCS payloads are stripped with their markers", () => {
+    // An OSC-8 hyperlink pair leaves only the link text.
+    expect(sanitize("safe\x1b]8;;http://evil\x07link\x1b]8;;\x07")).toBe("safelink");
+    expect(sanitize("a\x1bPq1;2;3\x1b\\b")).toBe("ab");
+  });
+
+  test("an unterminated OSC/DCS is stripped through the end of the input", () => {
+    // Without the BEL/ST terminator the old pattern removed only the two
+    // opener bytes and left the payload behind as visible text.
+    expect(sanitize("x\x1b]0;title-with-no-terminator")).toBe("x");
+    expect(sanitize("a\x1bPq1;2;3")).toBe("a");
+  });
+
+  test("SOS/PM/APC string sequences are stripped like DCS", () => {
+    expect(sanitize("a\x1bXpayload\x1b\\b")).toBe("ab");
+    expect(sanitize("a\x1b^payload\x1b\\b")).toBe("ab");
+    expect(sanitize("a\x1b_payload\x1b\\b")).toBe("ab");
+    // Unterminated: the rest of the input is payload.
+    expect(sanitize("a\x1bXsos-with-no-terminator")).toBe("a");
+    expect(sanitize("a\x1b_apc-with-no-terminator")).toBe("a");
+  });
 });
 
 describe("sgrOpen", () => {
