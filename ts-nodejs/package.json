@@ -1,6 +1,6 @@
 {
   "name": "kimi-planbar-tui-ts-nodejs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Terminal-resident Kimi Code plan quota dashboard (TS edition, Node.js + handwritten ANSI)",
   "type": "module",
   "private": true,

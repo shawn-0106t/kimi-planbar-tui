@@ -1,6 +1,6 @@
 [package]
 name = "kimi-planbar-tui"
-version = "0.1.0"
+version = "0.1.1"
 description = "Kimi Code quota terminal dashboard (pure TUI port of KimiPlanbarTray, ratatui + crossterm)"
 edition = "2021"
 
