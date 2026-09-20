@@ -13,7 +13,9 @@ export function timezoneMatchesGolden(): boolean {
 export function goldenText(name: string): string {
   const path = `${import.meta.dir}/golden/${name}.txt`;
   if (!existsSync(path)) throw new Error(`missing golden ${name} (run test/parity/make-oracle.ts)`);
-  return readFileSync(path, "utf8");
+  // The goldens are byte fixtures, so a checkout that rewrites line endings
+  // (core.autocrlf) must not be allowed to fail a comparison.
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 }
 
 /** Pairs of `[label, rawNumberText]` from a pretty-printed Rust array of 2-tuples,

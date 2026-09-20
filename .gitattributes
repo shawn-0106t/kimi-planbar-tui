@@ -1,0 +1,9 @@
+# TS edition sources are written and read as LF.
+*.ts text eol=lf
+*.json text eol=lf
+
+# ts/test/golden/*.txt are byte-exact fixtures emitted by the Rust oracle
+# (serde_json pretty text, chrono timestamps). Rewriting their line endings on
+# checkout would break the byte-equality assertions that pin TS to Rust, so
+# exclude them from any EOL normalization.
+ts/test/golden/*.txt -text
