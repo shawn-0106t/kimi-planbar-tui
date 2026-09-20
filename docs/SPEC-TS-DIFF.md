@@ -2,7 +2,7 @@
 
 > 定位：`docs/SPEC.md` 是两版共享的唯一权威行为契约；本文件只登记 **TS 版（Bun + OpenTUI）实现层面与 Rust 版不等价的机制**，按 SPEC 章节号归档，避免把主 SPEC 改成一版一份。
 > 结论来源：M1 阶段的实测与 Rust oracle（`ts/test/parity/make-oracle.ts` → `ts/test/golden/`），全部条目都有测试锁定。
-> 状态：M1（core 层）已实现并逐字节验证；渲染层条文随 M2 补入。
+> 状态：M1（core 层）已实现并逐字节验证；M2 渲染层条文见 §5；M3（三视图 + 键盘路由 + 缩窗）条文见 §5、§6，其中真终端实测项在 §6 末尾逐条列出，尚未打勾。
 
 ## 1. 验证方法（对应 SPEC 7.2 / 19）
 
@@ -47,7 +47,20 @@
 - **整屏底色靠逐 span 合成**：OpenTUI 无等价于 ratatui 整屏 `Block::bg` 的填充，且**未显式给 bg 的文本 run 会落到终端默认底色**（真机实测：标签/倒计时背后出现黑条）。故适配器把 `window_bg` 作为 base bg 合成到每个无自有 bg 的 span 上（badge 保留自有 bg），并在每行右侧补 window_bg 空白 run 铺到满宽、行间补满宽空行铺到满高。Rust 侧整屏底色由 ratatui 后端统一清屏，无此逐 span 处理。
 - **Bun/Windows 控制台 raw mode 差异（重要）**：Rust 靠 crossterm `enable_raw_mode` 关 echo；但 **Bun 1.4.2 的 `process.stdin.setRawMode()` 在 Windows 下不改动 OS 控制台模式**（FFI 实测 `ENABLE_ECHO_INPUT` 位前后不变），而 OpenTUI 的 `setupTerminal` 又把 raw 调用包在 `if (stdin.setRawMode)` 里——于是控制台停在 cooked 态，conhost 把每次按键回显到光标处（实测 `Resets in 2r'r'r`）。对策：`ts/src/tui/console.ts` 用 `bun:ffi` 直接 `SetConsoleMode`（清 `ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT`、置 `ENABLE_WINDOW_INPUT`），且**因 Bun 每读一次 stdin 会把模式翻回 cooked，须在每次输入事件与每次重绘前重申 raw**（`ensureRawMode`），退出路径 `restore` 还原原模式。这是 TS 版相对 Rust 的额外机制，Rust 无对应代码。
 - 渲染层键事件挂在 `renderer.keyInput`（非 `renderer` 本身，实测 `renderer.on("keypress")` 收不到）；`keyrelease` 不订阅（真终端会投递，路由器须忽略）。
+- **M3 续建的三视图与行模型**：`tui/settingsView.ts`（SPEC 13）、`tui/skillsView.ts`（SPEC 21.3）、`tui/app.ts` 的 `handleKey`/`UiApp`（SPEC 12.7 状态机，对照 `rust/src/app.rs::handle_key`）。三点实现差异：
+  1. **格宽改为按 East Asian Width 计算**：`line.ts#displayWidth` 取代 M2 的 `text.length`。ratatui 走 `unicode-width`，CJK/全角/Hangul/emoji 记 2 格、组合符号与变体选择符记 0 格，Ambiguous（`█ ░ · ¥ ● →`）按默认宽度 1 格（与 §2.6 实测一致）。裁剪按码点迭代，2 格字形放不进剩余 1 格时整体丢弃（对齐 ratatui 缓冲区行为），代理对不会被切断。Rust 侧由 unicode-width 自动处理，无对应代码。
+  2. **下划线属性**：SPEC 13.2 选中 interval 行时 Rust 加 `Modifier::UNDERLINED`，TS 用 OpenTUI `underline()` style（实测落到 `attributes` 位 8）。
+  3. **Skills 扫描放在下一个宏任务**：`app.ts#requestSkills` 先出 `Scanning...` 帧再 `setTimeout(0)` 跑 `scanSkills()`（实测本机 102 项 28 ms），对应 Rust 的 `spawn_blocking` + mpsc 回调；Rust 的 winreg 读是同步的，TS 若在事件回调里同步扫描会卡住重绘。设置保存的 `reg.exe` 自启写入仍同步（实测 11–21 ms，且 SPEC 13.2 的「写 JSON → 自启 → 主题 → 重排」顺序要求它先返回）。
+- **`console.ts` 的输入句柄修正（M3 复核 M2 时发现）**：M2 写的是 `STD_INPUT_HANDLE = 0xfffffff5`，而 `0xfffffff5` 是 `(HANDLE)-11` = **输出**句柄，`(HANDLE)-10`（输入）应为 `0xfffffff6`；`SetConsoleMode` 作用在输出句柄上只接受 `ENABLE_PROTECTED_CONSOLE_PROCESS`，因此 M2 的 raw 调用实际全部失败并被静默吞掉。M2 观察到的「回显消失」结论因此待重测：真终端那一轮须确认到底是 `console.ts` 生效还是 OpenTUI 自身的 `setupTerminal` 生效（`bun test/console-probe.ts` 会打印 `modes.inputAfterOpentui`）。同时 `GetStdHandle` 声明为 `i64` → Bun 返回 `bigint`，现统一 `Number()` 归一，避免 `=== 0` / `=== -1` 判定失效。
 
 ## 6. 无单实例互斥、启动缩窗（对应 SPEC 20）
 
-缩窗守卫的替代实现（终端环境变量启发式）属 M3，实测结论未出，此处暂不登记条文。
+- **无单实例互斥**：与 Rust 一致，允许多实例并存，不建任何命名互斥锁。
+- **缩窗守卫用同一个 Win32 调用**：计划原稿（TS-EDITION-PLAN §4 M3）以为 TS 版没有 Win32 binding、只能用终端环境变量启发式；实测 `bun:ffi` 调 `kernel32!GetConsoleProcessList` 可用，故 `ts/src/tui/shrink.ts` 与 Rust 一样按「附加到本控制台的进程数恰好为 1」判定独占，行为与 Rust 对齐。环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`TERM`/`ConEmuPID`/`MSYSTEM`/`TERMINUS_SUBLIME`）只在 FFI 不可用时兜底；`stdout` 非 TTY 时一律不缩。Rust 无这条兜底路径。
+- **两条缩窗通道与 Rust 同名同序**：(a) `ESC [ 8 ; 13 ; 72 t`；(b) conhost 序列 `SetConsoleWindowInfo(1×1)` → `SetConsoleScreenBufferSize(72×13)` → `SetConsoleWindowInfo(72×13)`。差别只在传参方式：`COORD`/`SMALL_RECT` 按值传参，bun:ffi 无结构体参数，故按 x64 调用约定手工打包进整数寄存器（`COORD = (y<<16)|x`，`SMALL_RECT` 四个 i16 依次占 0/16/32/48 位）。
+- **待真终端实测项**（本轮未做，`bun test/console-probe.ts [--shrink]` 即为验证它们而备）：
+  1. 通道 (b) 的手工打包是否真被 kernel32 接受（失败是静默的，只能靠 `--shrink` 后回读窗口尺寸确认）；
+  2. 共享终端（shell 里启动）确认不缩窗——已在非 TTY 与 `attachedProcessCount=5` 两种环境下验证判定为「不缩」；
+  3. 独占新窗（双击 / `wt` 直接起程序）确认缩到 72×13 且 WT 与 conhost 两条通道各测一次；
+  4. raw mode 与退出恢复（见 §5 的句柄修正条目）：进程序列无回显、`q`/Ctrl+C/异常三条退出路径后终端与窗口尺寸复原。
+

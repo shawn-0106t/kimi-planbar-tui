@@ -1,6 +1,6 @@
 # Kimi Planbar TUI — TS 版（Bun + OpenTUI）实施计划
 
-> 状态：实施中 — M0（仓库重组 + Bun 环境）与 **S0（OpenTUI 能力冒烟，结论 GO，见 §2.6）** 已于 2026-09-19 完成；M1 core 层进行中
+> 状态：实施中 — M0（仓库重组 + Bun 环境）与 **S0（OpenTUI 能力冒烟，结论 GO，见 §2.6）** 已于 2026-09-19 完成；M1、M2 已收口；**M3 代码完成、真终端验收待补**（见 §4 M3）
 > 行为契约：`docs/SPEC.md`（与 Rust 版共享；TS 版实现差异点见本文 §6，实现验证后需回写 SPEC 对应章节）
 > 前身：托盘版仓库的 `docs/TUI-PLAN-TS-BUN.md`（候选方案，当时未实施；本文档取代之并适配 monorepo 落点）
 
@@ -105,16 +105,21 @@ ts/
 4. 先用 mock 数据渲染；进度条宽度自适应终端宽度、不足 5 字符整条省略（12.2）
 5. 验收：Windows Terminal 下亮/暗双主题人工对照 SPEC 11/12
 
-### M3：交互与系统集成
+### M3：交互与系统集成 ⚠️ 代码完成（2026-09-20），真终端验收未做
 
-1. 键盘路由全集（12.7）：`r`（2s 防抖，静默忽略）/ `s` / `k` / `c` / `g` / `q` / `↑↓` / `Enter` / `Esc`；`c`/`g` 用 `Bun.spawn(["cmd", "/c", "start", ...])` 或 `rundll32 url.dll` 打开浏览器，异常静默吞掉
-2. 设置表单（13.2）：打开时按当前设置回填；Save 顺序 = 写 JSON → 自启 → 主题 → 重排定时器 → 返回 dashboard
-3. skills 视图（21.3）：首开取缓存、重扫键强制重扫；组内名称不区分大小写排序；描述超宽截断
-4. polling 接入：2s 首刷、失败 30s 快重试、keep-last-good 补齐、footer 时间戳（12.1 三态）
-5. 后台版本检查（17）：启动一次 + `r` 联动；changelog 主路径带 `Accept-Encoding: identity`；GitHub API 兜底失败静默降级 `checkFailed`
-6. **终端恢复（最高优先级，SPEC 20）**：每条退出路径恢复 alternate screen + 关 raw mode + 显示光标——正常 `q`、以及 `process.on('uncaughtException'/'unhandledRejection')` 先恢复再退出
-7. **启动缩窗 72×13（TS 版差异点）**：无原生 Win32 binding，`GetConsoleProcessList` 独占守卫改用环境变量启发式——存在 `WT_SESSION` / `TERM_PROGRAM` / `ConEmuPID` 等终端变量 = 从已有终端启动 → 绝不缩窗；缺失 = 双击/新窗口 → 发 `ESC[8;13;72t`（Windows Terminal 1.22+ 支持）。实测验证后回写 SPEC 20 补充 TS 版条文
-8. 验收：三视图交互走查；`q` 与异常强杀后终端完全恢复；共享终端窗口尺寸不被改动
+实现落点：`ts/src/tui/settingsView.ts`、`skillsView.ts`、`shrink.ts` + `app.ts` 的 `UiApp`/`handleKey`/`renderFrame`/`composeFrame`；行模型扩了 CJK 格宽与 underline（`line.ts`）。
+自动化验收实测：`bun test` 256 用例全绿（新增 settings 表单快照 6 + 样式 4、skills 行模型/视图 12、键盘路由 20、帧装配 8、格宽 7、缩窗决策 5、适配器 M3 行 1）；`bun run parity` 仍与 Rust exe 逐字节一致。
+**M3 第 8 条验收（三视图交互走查、`q`/异常后终端恢复、共享终端尺寸不变）尚未执行**——按用户决定并入「全部构建完成后」那一轮人工验收，待验项与探针用法逐条记在 `docs/SPEC-TS-DIFF.md` §6 末尾（探针 = `ts/test/console-probe.ts`）。M3 期间另发现并修正 M2 的 `console.ts` 输入句柄写错（`(HANDLE)-10` 误作 `0xfffffff5`），该修正同样待真终端复测。
+
+1. 键盘路由全集（12.7）：`r`（2s 防抖，静默忽略）/ `s` / `k` / `c` / `g` / `q` / `↑↓` / `←→` / `Enter` / `Space` / `Esc`；`c`/`g` 用 `Bun.spawn(["cmd","/c","start","",url])` 打开浏览器，异常静默吞掉。✅
+2. 设置表单（13.2）：打开时按当前设置回填；Save 顺序 = 写 JSON → 自启 → 主题 → 重排定时器 → 返回 dashboard ✅
+3. skills 视图（21.3）：首开取缓存、`r` 强制重扫（扫描放宏任务，先出 `Scanning...` 帧）；组内名称不区分大小写排序（core 已实现）；描述超宽按格宽截断 ✅
+4. polling 接入：2s 首刷、失败 30s 快重试、keep-last-good 补齐、footer 时间戳（12.1 三态）✅（M2 已接，M3 补 `reschedule`）
+5. 后台版本检查（17）：启动一次 + `r` 联动 ✅（M2 已接）
+6. **终端恢复（最高优先级，SPEC 20）**：`q`/Ctrl+C/`uncaughtException`/`unhandledRejection` 全部走 `destroyRenderer()`（`renderer.destroy()` + `console.ts` 还原）✅ 代码到位，真终端复测待做
+7. **启动缩窗 72×13**：实测 `bun:ffi` 可直接调 `GetConsoleProcessList`，故守卫与 Rust **完全相同**（进程数恰好 1 才缩），环境变量启发式降为 FFI 不可用时的兜底；两条通道（xterm 转义 + conhost Win32 序列，结构体按值手工打包）均已写入 `shrink.ts` ✅ 代码到位，效果实测待做
+8. 验收：三视图交互走查；`q` 与异常强杀后终端完全恢复；共享终端窗口尺寸不被改动 ⏳ 待人工轮
+
 
 ### M4：打包、文档与审查
 
@@ -133,7 +138,7 @@ ts/
 
 | 差异 | 原因 | SPEC 章节 |
 |---|---|---|
-| 缩窗守卫用终端环境变量启发式替代 `GetConsoleProcessList` | 无原生 Win32 binding | 20 |
+| 缩窗守卫：`GetConsoleProcessList` 经 `bun:ffi` 调用，与 Rust 同判据；仅 FFI 不可用时退回终端环境变量启发式 | 原计划假定 TS 无 Win32 binding，实测 `bun:ffi` 可用（M3） | 20 |
 | changelog Range 请求带 `Accept-Encoding: identity` | Bun fetch 解压 206+gzip 报 ZlibError | 17.2 |
 | TLS 信任走 `--use-system-ca`（ESET 类 TLS 检查环境） | Bun 自带 Mozilla CA 库不含本地重签根 | 17.2 / 8 |
 | 注册表操作全部 spawn `reg.exe`（GBK 解码） | 无 winreg 等价物 | 18.3 / 20 |
