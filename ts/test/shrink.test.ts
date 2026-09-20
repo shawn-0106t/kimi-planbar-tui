@@ -1,7 +1,7 @@
 // Startup window shrink (SPEC 20): the ownership guard and the escape text.
 // Only the decision is tested here — shrinkViaWin32() would resize whatever
 // console the test runner is attached to, so it is exercised on a dedicated
-// fresh console instead (see docs/TS-EDITION-PLAN.md §4 M3 verification).
+// fresh console instead (see SPEC §22.6).
 
 import { describe, expect, test } from "bun:test";
 import {

@@ -1,7 +1,7 @@
 // M4.2 probe: which switch actually makes a *compiled* Bun executable trust the
 // Windows system CA store? This machine runs ESET TLS interception, whose root
 // is in the system store but not in Bun's bundled Mozilla set, so
-// api.github.com is the natural canary (docs/TS-EDITION-PLAN.md §2.2, §7).
+// api.github.com is the natural canary (SPEC §22.4).
 //
 //   bun build --compile test/system-ca-probe.ts --outfile %TEMP%/ca-probe.exe
 //   %TEMP%/ca-probe.exe                      # no switch

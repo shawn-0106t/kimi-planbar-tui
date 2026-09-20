@@ -17,7 +17,7 @@ const walk = (dir: string): string[] => {
   return out;
 };
 
-describe("layering (docs/TS-EDITION-PLAN.md §3)", () => {
+describe("layering (SPEC 3.1)", () => {
   test("no core module reaches into the renderer", () => {
     const offenders = walk(join(SRC, "core"))
       .filter((file) => /@opentui/.test(readFileSync(file, "utf8")))
@@ -37,16 +37,38 @@ describe("layering (docs/TS-EDITION-PLAN.md §3)", () => {
  *  diff normalizes that one field; everything else compares byte for byte. */
 const normalize = (text: string): string => text.replace(/"fetchedAt": "[^"]*"/, '"fetchedAt": "<NOW>"');
 
-const selfCheck = (arg: string, useSystemCa = true): string => {
-  const cmd = [process.execPath, "run", ...(useSystemCa ? ["--use-system-ca"] : []), join(SRC, "main.ts"), arg];
+const selfCheckRun = (arg: string): { code: number | null; out: string } => {
+  const cmd = [
+    process.execPath,
+    "run",
+    "--use-system-ca",
+    join(SRC, "main.ts"),
+    arg,
+  ];
   const proc = Bun.spawnSync({ cmd, stdout: "pipe", stderr: "pipe" });
-  expect(proc.exitCode).toBe(0);
-  return new TextDecoder("utf-8").decode(proc.stdout).replace(/\r\n/g, "\n");
+  return {
+    code: proc.exitCode,
+    out: new TextDecoder("utf-8").decode(proc.stdout).replace(/\r\n/g, "\n"),
+  };
 };
+
+const selfCheck = (arg: string): string => {
+  const run = selfCheckRun(arg);
+  expect(run.code).toBe(0);
+  return run.out;
+};
+
+// Computed before the tests are declared so a precondition can become a real
+// skip: a bare `return` inside the body reports green without ever asserting.
+const FETCH = selfCheckRun("--test-fetch");
+const hasLiveToken = !(FETCH.out ?? "").includes('"no-token"');
+const rustBuilt = existsSync(RUST_EXE);
+const testRust = rustBuilt ? test : test.skip;
 
 describe("--test-fetch parity (SPEC 19)", () => {
   test("all five keys, serde text and a single trailing newline", () => {
-    const out = selfCheck("--test-fetch");
+    expect(FETCH.code).toBe(0);
+    const out = FETCH.out;
     expect(out.endsWith("\n")).toBe(true);
     expect(out.endsWith("\n\n")).toBe(false);
     const lines = out.split("\n");
@@ -60,14 +82,12 @@ describe("--test-fetch parity (SPEC 19)", () => {
     expect(["no-token", null]).toContain(parsed.error);
   });
 
-  test("the no-token document equals the Rust oracle golden", () => {
-    const out = selfCheck("--test-fetch");
-    if (!out.includes('"no-token"')) return; // a live token is on this machine
-    expect(normalize(out.trimEnd())).toBe(normalize(goldenText("quota-error-no-token")));
+  test.skipIf(hasLiveToken)("the no-token document equals the Rust oracle golden", () => {
+    expect(FETCH.code).toBe(0);
+    expect(normalize(FETCH.out.trimEnd())).toBe(normalize(goldenText("quota-error-no-token")));
   });
 
-  test("the Rust debug build agrees field by field, when it exists", () => {
-    if (!existsSync(RUST_EXE)) return;
+  testRust("the Rust debug build agrees field by field", () => {
     const ts = normalize(selfCheck("--test-fetch").trimEnd());
     const rust = normalize(
       new TextDecoder("utf-8")
@@ -86,8 +106,7 @@ describe("--test-update parity (SPEC 19)", () => {
     );
   });
 
-  test("the Rust debug build prints the same line, when it exists", () => {
-    if (!existsSync(RUST_EXE)) return;
+  testRust("the Rust debug build prints the same line", () => {
     const ts = selfCheck("--test-update");
     const rust = new TextDecoder("utf-8")
       .decode(Bun.spawnSync({ cmd: [RUST_EXE, "--test-update"], stdout: "pipe" }).stdout)

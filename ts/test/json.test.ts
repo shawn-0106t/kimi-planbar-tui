@@ -11,6 +11,7 @@ import {
   parseI64Strict,
   parseU64Strict,
   parseJsonValue,
+  RustJsonError,
   rustLines,
   rustRunes,
   rustStripLeadingBoms,
@@ -274,6 +275,15 @@ describe("Rust text idioms", () => {
     expect(-1499999n / 1000000n).toBe(-1n);
     expect(saturatingAddI64(9223372036854775807n, 500000n)).toBe(9223372036854775807n);
     expect(saturatingAddI64(-9223372036854775808n, -1n)).toBe(-9223372036854775808n);
+  });
+});
+
+describe("recursion limit (serde_json parity)", () => {
+  test("128 levels parse and 129 is a parse error, not a stack overflow", () => {
+    const within = "[".repeat(128) + "]".repeat(128);
+    expect(() => parseJsonValue(within)).not.toThrow();
+    const beyond = "[".repeat(129) + "]".repeat(129);
+    expect(() => parseJsonValue(beyond)).toThrow(RustJsonError);
   });
 });
 

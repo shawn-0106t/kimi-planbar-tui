@@ -93,7 +93,7 @@ describe("local version (SPEC 17.1)", () => {
     ).toBeNull();
   });
 
-  test("the real kimi on PATH reports the same version as the Rust edition", async () => {
+  test("PATH smoke: kimi --version yields null or an x.y.z triple", async () => {
     const version = await detectLocalVersion();
     expect(version === null || /^\d+\.\d+\.\d+$/.test(version)).toBe(true);
   });

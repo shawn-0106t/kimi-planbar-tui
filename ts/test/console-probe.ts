@@ -89,7 +89,7 @@ if (doShrink) {
 flush();
 
 // Does OpenTUI's own setupTerminal put the console into raw mode? (M2 assumed
-// it does not on Bun/Windows; this is the measurement behind SPEC-TS-DIFF §5.)
+// it does not on Bun/Windows; this is the measurement behind SPEC §22.5.)
 try {
   const { createCliRenderer } = await import("@opentui/core");
   modes.inputBeforeOpentui = modeOf(inH);

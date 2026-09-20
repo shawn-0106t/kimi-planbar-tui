@@ -1,4 +1,4 @@
-// Line-model cell width and clipping (SPEC 21.3, TS-EDITION-PLAN §2.6). M2
+// Line-model cell width and clipping (SPEC 21.3, §22.5). M2
 // only ever drew ASCII and Ambiguous glyphs, so `text.length` stood in for the
 // cell count; the skills view brings real CJK, which ratatui counts as 2 cells.
 

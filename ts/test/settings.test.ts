@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -13,9 +13,15 @@ import {
 } from "../src/core/settings.ts";
 import { goldenText, timezoneMatchesGolden } from "./goldens.ts";
 
+const cleanup: string[] = [];
+afterEach(() => {
+  for (const d of cleanup.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
 const tempDir = (label: string): string => {
   const dir = join(process.env["TMP"] ?? ".", `kpt-${label}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
+  cleanup.push(dir);
   return dir;
 };
 
@@ -61,10 +67,19 @@ describe("parseSettingsJson load rules (SPEC 18.2)", () => {
     }
   });
 
-  test("a number out of i64 range is a type error", () => {
+  test("beyond i64 is a type error; beyond 2^53 clamps to the exact range", () => {
     expect(parseSettingsJson('{"RefreshMinutes":9223372036854775808}')).toEqual(defaultSettings());
+    expect(parseSettingsJson('{"RefreshMinutes":-9223372036854775809}')).toEqual(defaultSettings());
+    // i64 max is still a valid i64, but Number() would round it, so the value
+    // is clamped to the exactly-representable range instead (SPEC 22.3).
     expect(parseSettingsJson('{"RefreshMinutes":9223372036854775807}').refreshMinutes).toBe(
-      9223372036854775807,
+      Number.MAX_SAFE_INTEGER,
+    );
+    expect(parseSettingsJson('{"RefreshMinutes":-9223372036854775808}').refreshMinutes).toBe(
+      -Number.MAX_SAFE_INTEGER,
+    );
+    expect(parseSettingsJson('{"RefreshMinutes":9007199254740991}').refreshMinutes).toBe(
+      9007199254740991,
     );
   });
 
@@ -88,7 +103,6 @@ describe("config dir + read/write (SPEC 18.1)", () => {
     expect(configDir(exe, { APPDATA: "C:/roaming" })).toBe(join("C:/roaming", "KimiPlanbarTui"));
     expect(configDir(exe, { APPDATA: "" })).toBe(dir);
     expect(configDir(exe, {})).toBe(dir);
-    rmSync(dir, { recursive: true, force: true });
   });
 
   test("a missing file yields defaults, and saving reads back identically", () => {
@@ -98,7 +112,6 @@ describe("config dir + read/write (SPEC 18.1)", () => {
     saveSettings(data, dir);
     expect(loadSettings(dir)).toEqual(data);
     expect(readFileSync(join(dir, "settings.json"), "utf8")).toBe(settingsToJsonText(data));
-    rmSync(dir, { recursive: true, force: true });
   });
 
   test("saving over a corrupt file repairs it", () => {
@@ -107,7 +120,6 @@ describe("config dir + read/write (SPEC 18.1)", () => {
     expect(loadSettings(dir)).toEqual(defaultSettings());
     saveSettings({ theme: "system", refreshMinutes: 30, autoStart: false }, dir);
     expect(loadSettings(dir).refreshMinutes).toBe(30);
-    rmSync(dir, { recursive: true, force: true });
   });
 
   test("the file the Rust edition wrote on this machine is still parseable and byte-stable", () => {

@@ -97,6 +97,16 @@ describe("polling schedule (SPEC 16.5)", () => {
     await h.fire();
     expect(lastDelay(h)).toBe(60_000);
   });
+
+  test("an above-ceiling period clamps to the setTimeout maximum", async () => {
+    const h = harness();
+    h.state.settings.refreshMinutes = Number.MAX_SAFE_INTEGER;
+    h.polling.start();
+    await h.fire();
+    // Unclamped, 2^53 * 60_000 overflows the int32 setTimeout and would
+    // reschedule at 1 ms — a hot loop hammering the API.
+    expect(lastDelay(h)).toBe(2_147_483_647);
+  });
 });
 
 describe("keep-last-good (SPEC 16.5 step 2)", () => {

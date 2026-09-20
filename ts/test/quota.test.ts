@@ -240,14 +240,16 @@ describe("fetchQuota error taxonomy (SPEC 16.4)", () => {
     expect(r.extra).toBeNull();
   });
 
-  test("non-2xx is an HttpRequestException and the body is never read", async () => {
+  test("non-2xx is an HttpRequestException and the body is drained", async () => {
     const response = new Response("junk", { status: 500 });
     const r = await fetchQuota({
       token: "t",
       fetchImpl: (async () => response) as typeof fetch,
     });
     expect(r.error).toBe("HttpRequestException");
-    expect(response.bodyUsed).toBe(false);
+    // Bun only returns the keep-alive connection to the pool once the body is
+    // consumed, so the failure path must drain it (src/core/quota.ts).
+    expect(response.bodyUsed).toBe(true);
   });
 
   test("a rejected request maps by timeout-ness", async () => {

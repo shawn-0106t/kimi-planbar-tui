@@ -3,7 +3,7 @@
 // cover end-to-end — in-place row replacement through the adapter, styled
 // chunks (fg + bg + bold + underline) reaching the cell buffer, CJK rows from
 // the M3 views, and keypress delivery via renderer.keyInput (not renderer
-// itself, see TS-EDITION-PLAN §2.6).
+// itself, see SPEC §22.5).
 
 import { describe, expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";

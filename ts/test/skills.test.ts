@@ -1,14 +1,20 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { collectSkills, parseFrontmatterFromBytes, scanSkills, sortSkills } from "../src/core/skills.ts";
+import { collectSkills, parseFrontmatter, parseFrontmatterFromBytes, scanSkills, sortSkills } from "../src/core/skills.ts";
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 
+const cleanup: string[] = [];
+afterEach(() => {
+  for (const d of cleanup.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
 const fixture = (): { dir: string; skill: (id: string, body: Uint8Array | string) => void } => {
   const dir = join(process.env["TMP"] ?? ".", `kpt-skills-${Math.random().toString(36).slice(2)}`);
   mkdirSync(dir, { recursive: true });
+  cleanup.push(dir);
   return {
     dir,
     skill(id, body) {
@@ -43,7 +49,6 @@ describe("frontmatter parser (SPEC 21.2)", () => {
     const c = out.find((s) => s.id === "c");
     expect(c?.name).toBe("c");
     expect(c?.description).toBe("");
-    rmSync(fx.dir, { recursive: true, force: true });
   });
 
   test("bom_and_non_utf8_bytes_are_tolerated, ported from rust/src/skills.rs", () => {
@@ -57,8 +62,7 @@ describe("frontmatter parser (SPEC 21.2)", () => {
     expect(out.find((s) => s.id === "bom")?.name).toBe("Bom");
     const gbkSkill = out.find((s) => s.id === "gbk");
     expect(gbkSkill?.name).toBe("Gbk"); // lossy decode keeps the ASCII fields
-    expect(gbkSkill?.description.includes("")).toBe(true);
-    rmSync(fx.dir, { recursive: true, force: true });
+    expect(gbkSkill?.description.includes("\uFFFD")).toBe(true);
   });
 
   test("the fence must be the first line and may carry a BOM or padding", () => {
@@ -92,11 +96,24 @@ describe("frontmatter parser (SPEC 21.2)", () => {
     expect(fm("---\ndescription: >-\n  folded\n")[1]).toBe(">-");
   });
 
-  test("only the first 4 KiB are read", () => {
+  test("the parser stops at 4 KiB of the bytes it is handed", () => {
     const long = "---\ndescription: " + "x".repeat(5000) + "\nname: Late\n---\n";
     const parsed = parseFrontmatterFromBytes(bytes(long));
     expect(parsed[1]).toHaveLength(4096 - "---\ndescription: ".length);
     expect(parsed[0]).toBeNull();
+  });
+
+  test("the 4 KiB window also holds through the real file path (SPEC 21.2)", () => {
+    const fx = fixture();
+    // This pins the file path end to end (readFileBytes + parser agree on the
+    // window). It cannot pin the *physical* read bound: the parser caps at 4096
+    // itself, so a whole-file read is indistinguishable through any public API —
+    // that half of Rust's `take(4096)` is a memory-safety property, code-reviewed
+    // only.
+    fx.skill("big", "---\ndescription: " + "x".repeat(5000) + "\nname: Late\n---\n");
+    const [name, description] = parseFrontmatter(join(fx.dir, "big", "SKILL.md"));
+    expect(description).toHaveLength(4096 - "---\ndescription: ".length);
+    expect(name).toBeNull();
   });
 });
 

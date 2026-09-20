@@ -1,4 +1,4 @@
-// Cross-edition self-check diff (docs/TS-EDITION-PLAN.md §4-M1.5, §5).
+// Cross-edition self-check diff (SPEC §22.1).
 //
 // Runs the headless self-checks of both editions back to back on this machine
 // and compares the text. Only the `fetchedAt` *value* is normalized: the Rust
