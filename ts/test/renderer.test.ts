@@ -1,8 +1,9 @@
 // Adapter-level integration on the OpenTUI test renderer (no real terminal):
-// pins the three mechanics renderer.ts relies on and that the S0 probe could
-// not cover end-to-end — in-place row replacement through the adapter, styled
-// chunks (fg + bg + bold) reaching the cell buffer, and keypress delivery via
-// renderer.keyInput (not renderer itself, see TS-EDITION-PLAN §2.6).
+// pins the mechanics renderer.ts relies on and that the S0 probe could not
+// cover end-to-end — in-place row replacement through the adapter, styled
+// chunks (fg + bg + bold + underline) reaching the cell buffer, CJK rows from
+// the M3 views, and keypress delivery via renderer.keyInput (not renderer
+// itself, see TS-EDITION-PLAN §2.6).
 
 import { describe, expect, test } from "bun:test";
 import { RGBA } from "@opentui/core";
@@ -12,6 +13,7 @@ import { MOONLIT } from "../src/core/theme.ts";
 import type { QuotaResult } from "../src/core/quota.ts";
 import { footerLine, renderDashboardRows } from "../src/tui/dashboard.ts";
 import { blankLine, type TuiLine } from "../src/tui/line.ts";
+import { createUiApp, renderFrame, setSkills } from "../src/tui/app.ts";
 import { wrapCliRenderer, type TuiRenderer } from "../src/tui/renderer.ts";
 
 const NOW = Date.UTC(2026, 8, 19, 6, 35, 0);
@@ -97,6 +99,37 @@ describe("opentui adapter (renderer.ts)", () => {
     setup.mockInput.pressKey("r", { shift: true });
     await new Promise((r) => setTimeout(r, 50));
     expect(got).toEqual(["q", "r+"]);
+    adapter.destroy();
+  });
+
+  test("M3 rows reach the buffer: underline on the pills, CJK at two cells", async () => {
+    const setup = await createTestRenderer({ width: 72, height: 14 });
+    const adapter = wrapCliRenderer(setup.renderer);
+
+    const form = createUiApp(null);
+    form.view = "settings";
+    form.settingsDraft = { theme: "system", refreshMinutes: 5, autoStart: false };
+    form.settingsSel = 1; // the interval row carries the underline
+    adapter.renderRows(renderFrame(form, MOONLIT, 72, 14), MOONLIT.windowBg);
+    await setup.renderOnce();
+    const pillSpan = setup
+      .captureSpans()
+      .lines[12]!.spans.find((s) => s.text === " 5 min ")!;
+    expect(pillSpan.attributes & 8).toBe(8); // underline bit (probe §2.6)
+    expect(pillSpan.bg.equals(RGBA.fromHex(MOONLIT.accent))).toBe(true);
+    expect(pillSpan.fg.equals(RGBA.fromHex("#FFFFFF"))).toBe(true);
+
+    const list = createUiApp(null);
+    list.view = "skills";
+    setSkills(list, [{ id: "x", name: "中文技能", description: "描述", source: "Kimi Code" }]);
+    adapter.renderRows(renderFrame(list, MOONLIT, 72, 14), MOONLIT.windowBg);
+    await setup.renderOnce();
+    const nameRow = setup.captureCharFrame().split("\n")[5]!;
+    expect(nameRow.trimEnd()).toBe("  中文技能");
+    // the padded filler leaves no gap: 4 header + group + name + desc = row 7 blank
+    expect(rowText(setup, 6)).toBe("    描述");
+    expect(rowText(setup, 13)).toContain("↑/↓ Scroll");
+
     adapter.destroy();
   });
 });

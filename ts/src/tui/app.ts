@@ -1,26 +1,53 @@
-// TUI bootstrap + event loop for the M2 slice — the TS counterpart of
-// rust/src/app.rs, restricted to the dashboard: no settings/skills routing
-// and no window-shrink guard yet (both are M3 in TS-EDITION-PLAN §4).
+// TUI bootstrap + event loop — the TS counterpart of rust/src/app.rs: the
+// three-view state machine (SPEC 12/13/21), the full SPEC 12.7 key router and
+// the SPEC 20 terminal discipline.
 //
 // Loop shape mirrors the tokio::select! (SPEC 3.2 / 20): every event
 // (keypress, quota publish, update result, theme tick, resize) redraws
 // immediately; a 250 ms heartbeat only wakes the idle loop so countdown text
 // stays fresh — countdowns are recomputed per redraw, there is no 1 Hz timer.
 //
+// handleKey() is exported as a pure state transition over UiApp with its side
+// effects behind RouterDeps, mirroring how the Rust handle_key takes &mut App
+// plus the mpsc senders — that is what lets ts/test/appRouting.test.ts replay
+// the Rust app.rs unit tests 1:1.
+//
 // Terminal discipline (SPEC 20): the renderer owns raw mode + alternate
 // screen; EVERY exit path (q, ctrl+c, uncaughtException, unhandledRejection)
 // goes through destroyRenderer() so the terminal is never stranded.
 
 import { createPolling, type Polling } from "../core/polling.ts";
-import { fetchQuota } from "../core/quota.ts";
-import { loadSettings } from "../core/settings.ts";
+import { fetchQuota, type QuotaResult } from "../core/quota.ts";
+import {
+  applyAutoStart,
+  loadSettings,
+  saveSettings as writeSettings,
+  type SettingsData,
+} from "../core/settings.ts";
+import { scanSkills, type SkillInfo } from "../core/skills.ts";
 import { createAppState, type AppState } from "../core/state.ts";
-import { effectiveTheme, palette, refreshSystemThemeCache, systemThemeSync } from "../core/theme.ts";
+import {
+  effectiveTheme,
+  palette,
+  refreshSystemThemeCache,
+  systemThemeSync,
+  type Palette,
+} from "../core/theme.ts";
 import { checkUpdate, type UpdateStatus } from "../core/update.ts";
 import { blankLine, padLineToWidth, type TuiLine } from "./line.ts";
 import { footerLine, renderDashboardRows } from "./dashboard.ts";
+import { renderSettingsRows, settingsFooterLine } from "./settingsView.ts";
+import {
+  buildSkillRows,
+  firstItemIndex,
+  moveSkillSel,
+  renderSkillsRows,
+  skillsFooterLine,
+  type SkillRow,
+} from "./skillsView.ts";
 import { createTuiRenderer, type KeyPress, type TuiRenderer } from "./renderer.ts";
 import { enterRawMode, ensureRawMode } from "./console.ts";
+import { shrinkOwnedConsoleIfOwned } from "./shrink.ts";
 
 /** SPEC 12.7: Console button URL. */
 export const CONSOLE_URL = "https://www.kimi.com/code/console?from=kfc_overview_topbar";
@@ -32,12 +59,244 @@ const MANUAL_REFRESH_DEBOUNCE_MS = 2_000;
 const THEME_POLL_MS = 30_000;
 const DRAW_HEARTBEAT_MS = 250;
 
-/** SPEC 20 startup order: (window shrink is M3) -> load settings -> apply
+/** rust/src/app.rs::View */
+export type View = "dashboard" | "settings" | "skills";
+
+/** rust/src/app.rs::App (the quota/update fields it carries live here too, so
+ *  the views take one object). */
+export interface UiApp {
+  view: View;
+  quota: QuotaResult | null;
+  update: UpdateStatus | null;
+  /** Draft copy edited in the settings form; committed on Save. */
+  settingsDraft: SettingsData | null;
+  /** Selected settings row: 0 Theme, 1 Interval, 2 AutoStart, 3 Save. */
+  settingsSel: number;
+  skillsRows: SkillRow[];
+  skillsSel: number;
+  skillsLoading: boolean;
+  quit: boolean;
+}
+
+export function createUiApp(quota: QuotaResult | null = null): UiApp {
+  return {
+    view: "dashboard",
+    quota,
+    update: null,
+    settingsDraft: null,
+    settingsSel: 0,
+    skillsRows: [],
+    skillsSel: 0,
+    skillsLoading: false,
+    quit: false,
+  };
+}
+
+/** Side effects the router delegates: the Rust equivalents are the mpsc
+ *  senders and the settings/skills module calls. */
+export interface RouterDeps {
+  /** Committed settings, used to seed the draft when the form opens. */
+  currentSettings(): SettingsData;
+  manualRefresh(): void;
+  openConsole(): void;
+  openReleases(): void;
+  requestSkills(refresh: boolean): void;
+  /** SPEC 13.2 save order: JSON -> autostart -> theme -> reschedule. */
+  saveSettings(draft: SettingsData): void;
+}
+
+const THEMES: readonly string[] = ["system", "light", "dark"];
+const INTERVALS: readonly number[] = [1, 5, 10, 30];
+
+/** rust/src/app.rs::cycle — `rem_euclid` wrap, unknown current value starts at 0. */
+function cycle<T extends string | number>(options: readonly T[], current: T, dir: number): T {
+  const len = options.length;
+  const at = options.indexOf(current);
+  const idx = at < 0 ? 0 : at;
+  return options[(((idx + dir) % len) + len) % len]!;
+}
+
+/** rust/src/app.rs::set_skills */
+export function setSkills(app: UiApp, skills: SkillInfo[]): void {
+  app.skillsLoading = false;
+  app.skillsRows = buildSkillRows(skills);
+  app.skillsSel = firstItemIndex(app.skillsRows) ?? 0;
+}
+
+/** SPEC 12.7 key table, dispatched per view (rust/src/app.rs::handle_key). */
+export function handleKey(app: UiApp, key: KeyPress, deps: RouterDeps): void {
+  // Global quit (any view): q, and Ctrl+C. Ctrl+<other> is ignored, and a
+  // shifted letter is a different Rust KeyCode — Char('R') never matches the
+  // Char('r') arms, so the router ignores it the same way.
+  if (key.name === "q" || (key.name === "c" && key.ctrl)) {
+    app.quit = true;
+    return;
+  }
+  if (key.ctrl) return;
+  if (key.shift && key.name.length === 1) return;
+
+  switch (app.view) {
+    case "dashboard":
+      switch (key.name) {
+        case "r":
+          deps.manualRefresh();
+          break;
+        case "s":
+          app.settingsDraft = { ...deps.currentSettings() };
+          app.settingsSel = 0;
+          app.view = "settings";
+          break;
+        case "k":
+          app.view = "skills";
+          deps.requestSkills(false);
+          break;
+        case "c":
+          deps.openConsole();
+          break;
+        case "g":
+          deps.openReleases();
+          break;
+      }
+      return;
+
+    case "settings": {
+      const draft = app.settingsDraft;
+      if (draft === null) {
+        app.view = "dashboard";
+        return;
+      }
+      switch (key.name) {
+        case "escape":
+          app.settingsDraft = null;
+          app.view = "dashboard";
+          return;
+        case "up":
+          app.settingsSel = Math.max(0, app.settingsSel - 1);
+          return;
+        case "down":
+          app.settingsSel = Math.min(3, app.settingsSel + 1);
+          return;
+        case "left":
+        case "right": {
+          const dir = key.name === "left" ? -1 : 1;
+          if (app.settingsSel === 0) {
+            draft.theme = cycle(THEMES, draft.theme, dir);
+          } else if (app.settingsSel === 1) {
+            draft.refreshMinutes = cycle(INTERVALS, draft.refreshMinutes, dir);
+          } else if (app.settingsSel === 2) {
+            draft.autoStart = !draft.autoStart;
+          }
+          return;
+        }
+        case "return":
+        case "space":
+          if (app.settingsSel === 0) {
+            draft.theme = cycle(THEMES, draft.theme, 1);
+          } else if (app.settingsSel === 1) {
+            draft.refreshMinutes = cycle(INTERVALS, draft.refreshMinutes, 1);
+          } else if (app.settingsSel === 2) {
+            draft.autoStart = !draft.autoStart;
+          } else {
+            deps.saveSettings(draft);
+            app.settingsDraft = null;
+            app.view = "dashboard";
+          }
+          return;
+      }
+      return;
+    }
+
+    case "skills":
+      switch (key.name) {
+        case "escape":
+          app.view = "dashboard";
+          break;
+        case "up":
+          app.skillsSel = moveSkillSel(app.skillsRows, app.skillsSel, -1);
+          break;
+        case "down":
+          app.skillsSel = moveSkillSel(app.skillsRows, app.skillsSel, 1);
+          break;
+        case "r":
+          deps.requestSkills(true);
+          break;
+      }
+      return;
+  }
+}
+
+/** One frame: the active view's rows, the Min(0) spacer equivalent, and the
+ *  bottom-pinned footer. On too-short terminals the content clips from the
+ *  bottom while the footer stays visible. */
+export function composeFrame(
+  rows: TuiLine[],
+  footer: TuiLine,
+  width: number,
+  height: number,
+  windowBg: string,
+): TuiLine[] {
+  if (height <= 0) return [];
+  const body = rows.length + 1 <= height ? rows : rows.slice(0, Math.max(0, height - 1));
+  const fillers = Array.from({ length: Math.max(0, height - body.length - 1) }, () =>
+    padLineToWidth(blankLine(width, windowBg), width, windowBg),
+  );
+  return [...body, ...fillers, footer];
+}
+
+/** The frame for the current view — exported so the view switch is testable.
+ *  `nowMs` is a seam: the countdown is recomputed per redraw from the wall
+ *  clock (SPEC 12.3), which the dashboard view takes as an input. */
+export function renderFrame(
+  app: UiApp,
+  p: Palette,
+  width: number,
+  height: number,
+  nowMs: number = Date.now(),
+): TuiLine[] {
+  switch (app.view) {
+    case "settings":
+      return composeFrame(
+        renderSettingsRows({ draft: app.settingsDraft, sel: app.settingsSel, width, height, palette: p }),
+        settingsFooterLine(p, width),
+        width,
+        height,
+        p.windowBg,
+      );
+    case "skills":
+      return composeFrame(
+        renderSkillsRows({
+          rows: app.skillsRows,
+          sel: app.skillsSel,
+          loading: app.skillsLoading,
+          width,
+          height,
+          palette: p,
+        }),
+        skillsFooterLine(p, width),
+        width,
+        height,
+        p.windowBg,
+      );
+    default:
+      return composeFrame(
+        renderDashboardRows({ quota: app.quota, update: app.update, nowMs, width, palette: p }).rows,
+        footerLine(p, width),
+        width,
+        height,
+        p.windowBg,
+      );
+  }
+}
+
+/** SPEC 20 startup order: shrink the owned window -> load settings -> apply
  *  theme -> init terminal -> event loop -> 2 s first refresh -> update check. */
 export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTuiRenderer): Promise<void> {
+  shrinkOwnedConsoleIfOwned();
+
   const settings = loadSettings();
   const eff = effectiveTheme(settings.theme, systemThemeSync());
   const state: AppState = createAppState(settings, eff);
+  const app = createUiApp();
 
   const renderer = await makeRenderer();
   // OpenTUI's setupTerminal guards raw mode behind `if (stdin.setRawMode)`,
@@ -65,34 +324,11 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
     process.exit(1);
   });
 
-  const app = {
-    quota: null as Parameters<typeof renderDashboardRows>[0]["quota"],
-    update: null as UpdateStatus | null,
-  };
-
   const draw = (): void => {
     if (destroyed) return;
     ensureRawMode(); // Bun flips the console back to cooked on each stdin read
     const p = palette(state.effectiveTheme);
-    const width = renderer.width;
-    const height = renderer.height;
-    const { rows } = renderDashboardRows({
-      quota: app.quota,
-      update: app.update,
-      nowMs: Date.now(),
-      width,
-      palette: p,
-    });
-    const footer = footerLine(p, width);
-    // Min(0) spacer equivalent: blank bg-filled rows between content and the
-    // bottom-pinned footer; on too-short terminals the content clips from the
-    // bottom and the footer stays visible.
-    const body = rows.length + 1 <= height ? rows : rows.slice(0, Math.max(0, height - 1));
-    const fillers = Array.from({ length: Math.max(0, height - body.length - 1) }, () =>
-      padLineToWidth(blankLine(width, p.windowBg), width, p.windowBg),
-    );
-    const frame: TuiLine[] = height > 0 ? [...body, ...fillers, footer] : [];
-    renderer.renderRows(frame, p.windowBg);
+    renderer.renderRows(renderFrame(app, p, renderer.width, renderer.height), p.windowBg);
   };
 
   const polling: Polling = createPolling({
@@ -125,27 +361,50 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
     spawnUpdateCheck();
   };
 
+  /** SPEC 21.2: scan once and cache; the rescan key forces a fresh scan. The
+   *  scan runs on the next macrotask so the "Scanning..." frame is drawn
+   *  first, standing in for the Rust spawn_blocking + mpsc round trip. */
+  const requestSkills = (refresh: boolean): void => {
+    if (!refresh && state.skillsCache !== null) {
+      setSkills(app, state.skillsCache);
+      draw();
+      return;
+    }
+    if (app.skillsLoading) return;
+    app.skillsLoading = true;
+    draw();
+    setTimeout(() => {
+      const list = scanSkills();
+      state.skillsCache = list;
+      setSkills(app, list);
+      draw();
+    }, 0);
+  };
+
+  const deps: RouterDeps = {
+    currentSettings: () => state.settings,
+    manualRefresh,
+    openConsole: () => openUrl(CONSOLE_URL),
+    openReleases: () => openUrl(RELEASES_URL),
+    requestSkills,
+    saveSettings: (draft) => {
+      // SPEC 13.2 order: write settings.json -> autostart -> theme -> timer.
+      writeSettings(draft);
+      applyAutoStart(draft);
+      state.settings = draft;
+      state.effectiveTheme = effectiveTheme(draft.theme, systemThemeSync());
+      polling.reschedule();
+    },
+  };
+
   renderer.onKey((key: KeyPress) => {
     ensureRawMode(); // re-arm before the next keystroke so conhost never echoes
-    if (key.name === "q" || (key.name === "c" && key.ctrl)) {
+    handleKey(app, key, deps);
+    if (app.quit) {
       destroyRenderer();
       process.exit(0);
     }
-    if (key.ctrl) return;
-    // Rust sees uppercase as a different code: shifted letters are ignored.
-    if (key.shift && key.name.length === 1) return;
-    switch (key.name) {
-      case "r":
-        manualRefresh();
-        break;
-      case "c":
-        openUrl(CONSOLE_URL);
-        break;
-      case "g":
-        openUrl(RELEASES_URL);
-        break;
-      // s/k (settings, skills views) and arrows are wired in M3.
-    }
+    draw(); // event-driven redraw, no coalescing (SPEC 20)
   });
   renderer.onResize(draw);
 

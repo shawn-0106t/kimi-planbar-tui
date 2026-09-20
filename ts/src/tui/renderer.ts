@@ -16,6 +16,7 @@ import {
   createCliRenderer,
   fg as sFg,
   StyledText,
+  underline as sUnderline,
   TextRenderable,
   type CliRenderer,
 } from "@opentui/core";
@@ -52,6 +53,7 @@ function toStyledText(line: TuiLine, baseBg: string): StyledText {
       if (s.fg !== undefined) input = sFg(s.fg)(input);
       input = sBg(s.bg ?? baseBg)(input);
       if (s.bold) input = sBold(input);
+      if (s.underline) input = sUnderline(input);
       // Unstyled runs must still arrive as TextChunk objects, not raw strings.
       return typeof input === "string" ? { __isChunk: true as const, text: input } : input;
     });

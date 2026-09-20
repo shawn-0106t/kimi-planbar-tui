@@ -15,7 +15,11 @@
 
 import { dlopen, FFIType, ptr } from "bun:ffi";
 
-const STD_INPUT_HANDLE = 0xfffffff5; // (HANDLE)-10
+// (HANDLE)-10 is 0xfffffff6; 0xfffffff5 is the *output* handle (-11), and
+// SetConsoleMode on an output handle rejects everything but
+// ENABLE_PROTECTED_CONSOLE_PROCESS, so pointing here at the wrong constant
+// silently disabled the raw-mode call.
+const STD_INPUT_HANDLE = 0xfffffff6; // (HANDLE)-10
 const ENABLE_LINE_INPUT = 0x0002;
 const ENABLE_ECHO_INPUT = 0x0004;
 const ENABLE_WINDOW_INPUT = 0x0008;
@@ -53,7 +57,9 @@ function readMode(): number {
 export function enterRawMode(): () => void {
   if (lib === null) return () => {};
   try {
-    handle = lib.GetStdHandle(STD_INPUT_HANDLE);
+    // GetStdHandle is declared i64, so Bun hands back a bigint; handle values
+    // fit far below 2^53 and the rest of this module compares them as numbers.
+    handle = Number(lib.GetStdHandle(STD_INPUT_HANDLE));
     buf = Buffer.alloc(4);
     originalMode = readMode();
     if (originalMode === -1) return () => {};
