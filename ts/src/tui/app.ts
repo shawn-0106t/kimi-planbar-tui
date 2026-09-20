@@ -288,6 +288,31 @@ export function renderFrame(
   }
 }
 
+/** Exit-path wiring (SPEC 20). Kept as a second line of defence: Bun/Windows
+ *  swallows the console control event, so Ctrl+C reaches neither this handler
+ *  nor the key router (SPEC 22.6) — `q` is the quit key. The handlers still
+ *  cover whatever does raise a signal here (Ctrl+Break, a future runtime fix),
+ *  and the guard makes the path idempotent however many arrive.
+ *  Exported for the unit test — `exit` is injectable so tests never exit. */
+export function registerExitHandlers(
+  destroy: () => void,
+  exit: (code: number) => void = (code) => process.exit(code),
+): () => void {
+  let done = false;
+  const teardown = (): void => {
+    if (done) return;
+    done = true;
+    destroy();
+    exit(0);
+  };
+  process.on("SIGINT", teardown);
+  process.on("SIGBREAK", teardown);
+  return () => {
+    process.removeListener("SIGINT", teardown);
+    process.removeListener("SIGBREAK", teardown);
+  };
+}
+
 /** SPEC 20 startup order: shrink the owned window -> load settings -> apply
  *  theme -> init terminal -> event loop -> 2 s first refresh -> update check. */
 export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTuiRenderer): Promise<void> {
@@ -323,6 +348,7 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
     console.error(err);
     process.exit(1);
   });
+  registerExitHandlers(destroyRenderer);
 
   const draw = (): void => {
     if (destroyed) return;
@@ -409,10 +435,13 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
   renderer.onResize(draw);
 
   const themeTimer = setInterval(() => {
-    // SPEC 20: theme=system polls the registry every 30 s.
+    // SPEC 20: theme=system polls the registry every 30 s; a change redraws
+    // immediately, like every other event.
     if (state.settings.theme !== "system") return;
     const next = effectiveTheme(state.settings.theme, refreshSystemThemeCache());
-    if (next !== state.effectiveTheme) state.effectiveTheme = next;
+    if (next === state.effectiveTheme) return;
+    state.effectiveTheme = next;
+    draw();
   }, THEME_POLL_MS);
   themeTimer.unref();
 

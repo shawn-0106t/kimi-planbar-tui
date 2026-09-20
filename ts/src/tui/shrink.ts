@@ -7,7 +7,7 @@
 // reachable through bun:ffi, so the TS edition uses the same guard and keeps
 // the behaviour identical; only when the FFI is unavailable (non-Windows, a
 // stripped kernel32, a future Bun) does it fall back to the terminal
-// environment-variable heuristic from TS-EDITION-PLAN §4 M3.
+// environment-variable heuristic (registered in SPEC §22.6).
 //
 // Two best-effort shrink channels, both silent on failure, as in Rust:
 //  (a) the xterm window-size escape `ESC [ 8 ; rows ; cols t` — Windows

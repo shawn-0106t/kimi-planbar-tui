@@ -10,8 +10,13 @@
 // key, so setting raw once is not enough — the app re-asserts it on every input
 // event via ensureRawMode(), keeping the echo bit off whenever a key arrives.
 //
-// Raw mode = clear ENABLE_LINE_INPUT (0x2) + ENABLE_ECHO_INPUT (0x4), ensure
-// ENABLE_WINDOW_INPUT (0x8). All FFI failures are swallowed (SPEC 20).
+// Raw mode = clear ENABLE_PROCESSED_INPUT (0x1) + ENABLE_LINE_INPUT (0x2) +
+// ENABLE_ECHO_INPUT (0x4), ensure ENABLE_WINDOW_INPUT (0x8). PROCESSED_INPUT is
+// cleared for crossterm parity (it also keeps Ctrl+B/Ctrl+H as bytes), but that
+// does NOT buy a working Ctrl+C: measured 2026-09-20 under Bun/Windows, the key
+// reaches the app neither as a keypress nor as a JS SIGINT, whichever way the
+// flag is set — see SPEC 22.6, and `q` is the quit key.
+// All FFI failures are swallowed (SPEC 20).
 
 import { dlopen, FFIType, ptr } from "bun:ffi";
 
@@ -20,6 +25,7 @@ import { dlopen, FFIType, ptr } from "bun:ffi";
 // ENABLE_PROTECTED_CONSOLE_PROCESS, so pointing here at the wrong constant
 // silently disabled the raw-mode call.
 const STD_INPUT_HANDLE = 0xfffffff6; // (HANDLE)-10
+const ENABLE_PROCESSED_INPUT = 0x0001;
 const ENABLE_LINE_INPUT = 0x0002;
 const ENABLE_ECHO_INPUT = 0x0004;
 const ENABLE_WINDOW_INPUT = 0x0008;
@@ -63,7 +69,7 @@ export function enterRawMode(): () => void {
     buf = Buffer.alloc(4);
     originalMode = readMode();
     if (originalMode === -1) return () => {};
-    rawMode = (originalMode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT)) | ENABLE_WINDOW_INPUT;
+    rawMode = (originalMode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT)) | ENABLE_WINDOW_INPUT;
     if (!lib.SetConsoleMode(handle, rawMode)) return () => {};
     return () => {
       try {

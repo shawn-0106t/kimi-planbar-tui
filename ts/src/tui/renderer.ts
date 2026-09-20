@@ -1,5 +1,5 @@
 // OpenTUI adapter: turns TuiLine rows into one Text handle per row and keeps
-// them in sync in place. All four S0 probe constraints (TS-EDITION-PLAN §2.6)
+// them in sync in place. All four S0 probe constraints (now registered in SPEC §22.5)
 // are honored here:
 //  - text content is treated as write-once; changed rows are destroyed and
 //    rebuilt (root.add(child, index) mid-mount verified to insert in order)

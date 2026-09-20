@@ -1,9 +1,9 @@
 // Pure line model shared by the views and the renderers (SPEC 12). The views
 // emit `TuiLine[]` here; the OpenTUI adapter in renderer.ts turns them into
 // one Text handle per row. Keeping this layer free of @opentui imports is the
-// seam that lets the render layer be swapped wholesale (TS-EDITION-PLAN §7).
+// seam that lets the render layer be swapped wholesale (SPEC §22.5).
 //
-// Design constraints carried over from the S0 probe (TS-EDITION-PLAN §2.6):
+// Design constraints carried over from the S0 probe (now registered in SPEC §22.5):
 //  - trap 1: Text content is write-once per frame in practice, so a repaint
 //    rebuilds row handles; rows are therefore modeled as immutable values.
 //  - trap 3: nothing fills the screen background, so every line is padded to
@@ -38,7 +38,7 @@ export function tline(spans: TuiSpan[]): TuiLine {
  *  frontmatter (SPEC 21.3): CJK ideographs, kana, Hangul, fullwidth forms and
  *  emoji. Ambiguous-width glyphs (`█ ░ · ¥ ● →`) stay at 1 cell, which is what
  *  ratatui's default `unicode-width` does and the S0 probe measured (see
- *  TS-EDITION-PLAN §2.6) — hence no ambiguous ranges here. */
+ *  SPEC §22.5) — hence no ambiguous ranges here. */
 const WIDE_RANGES: readonly [number, number][] = [
   [0x1100, 0x115f],
   [0x2e80, 0x303e],

@@ -15,9 +15,8 @@ export const FOOTER = "r Refresh · s Settings · k Skills · c Console · g Rel
 const LABEL_W = 14;
 /// Minimum bar width; below this the bar is dropped (very narrow terminals).
 const MIN_BAR_W = 5;
-/// ratatui title split: Min(10) + Length(16).
+/// ratatui title split: Min(10) + Length(16) — Length wins under scarcity.
 const TITLE_RIGHT_W = 16;
-const TITLE_LEFT_MIN = 10;
 
 export interface DashboardInput {
   quota: QuotaResult | null;
@@ -37,7 +36,9 @@ export function lastUpdatedText(quota: QuotaResult | null): string {
 
 function titleLine(p: Palette, width: number, quota: QuotaResult | null): TuiLine {
   const right = lastUpdatedText(quota);
-  const rightW = width >= TITLE_LEFT_MIN + TITLE_RIGHT_W ? TITLE_RIGHT_W : Math.max(0, width - TITLE_LEFT_MIN);
+  // ratatui Layout[Min(10), Length(16)]: Length wins under scarcity, so the
+  // right column keeps its 16 cells down to the narrowest widths.
+  const rightW = Math.min(TITLE_RIGHT_W, width);
   const leftW = Math.max(0, width - rightW);
   // ratatui clips each side into its column (the title included on tiny widths).
   const title = "Kimi Planbar TUI".slice(0, leftW);

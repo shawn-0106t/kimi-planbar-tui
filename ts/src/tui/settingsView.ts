@@ -33,7 +33,7 @@ export const INTERVAL_OPTIONS: readonly [number, string][] = [
 ];
 
 /** ratatui uses Color::White for the active pill/Save text; OpenTUI resolves
- *  "white" to #FFFFFF, which is what SPEC 11.1 writes down (SPEC-TS-DIFF §5). */
+ *  "white" to #FFFFFF; the selection-style rule lives in SPEC 11.1 and §22.5. */
 const ACTIVE_FG = "#FFFFFF";
 
 /** Selected row paints a button_hover background, like the Rust sel_style. */
