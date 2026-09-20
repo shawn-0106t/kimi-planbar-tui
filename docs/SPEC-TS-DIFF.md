@@ -38,11 +38,15 @@
 - 本机 ESET 做 TLS 拦截、其根证书不在 Bun 自带的 Mozilla CA 库内 → 跑 GitHub API 兜底需要运行时 **`--use-system-ca`**（已写进 `ts/package.json` 的脚本）。`bun build --compile` 产物如何固化该开关仍是 M4 开放问题；`moonshotai.github.io` 与 `api.kimi.com` 不受拦截，故主路径不依赖它。
 - `kimi --version` 经 `Bun.spawn`（实测不走 shell 即可拿到版本号），5 s 超时后 `kill()`，stdout+stderr 按此顺序 lossy 拼接后取首个 `\d+\.\d+\.\d+`。
 
-## 5. 配色与渲染层（对应 SPEC 11.1，M2 补全其余条文）
+## 5. 配色与渲染层（对应 SPEC 11.1 / 20）
 
 - SPEC 11.1 列十色，`rust/src/theme.rs` 的 `Palette` 只有九槽（`card_bg` 仅存在于规格），TS 同样实现九槽。
 - 选中态文字：Rust 走 crossterm `Color::White` → SGR `37`（终端调色板白），TS/OpenTUI 的 `"white"` 解析为 `#FFFFFF`（实测 `rgba(1,1,1,1)`）。SPEC 字面写的是 `#FFFFFF`，故 TS 与 SPEC 一致、与 Rust 实际字节不一致——观感差异仅在用户自定义终端白时可见。
-- OpenTUI 能力实测结论（格宽、per-span bg、硬裁剪、键事件、resize 崩溃、就地改内容不重绘等）见 `docs/TS-EDITION-PLAN.md` §2.6；M2 落渲染层后在此登记最终采用的渲染适配器与残余偏差。
+- OpenTUI 能力实测结论（格宽、per-span bg、硬裁剪、键事件、resize 崩溃、就地改内容不重绘等）见 `docs/TS-EDITION-PLAN.md` §2.6。
+- **M2 采用的渲染适配器**：`ts/src/tui/` 分三层——`line.ts` 是纯 `TuiLine[]` 模型（视图产出、可脱离终端快照测试），`dashboard.ts` 是 SPEC 12 的纯视图（逐行对照 `rust/src/ui/dashboard.rs`，行序即 ratatui 纵向约束的屏幕行号），`renderer.ts` 是 OpenTUI 适配器。适配器按 §2.6 四条陷阱实现：每行一个 `TextRenderable`、内容 write-once 故变更行销毁重建（`root.add(child, index)` 挂载后原位插入已实测保序）、纯流式布局（footer 前用等高的 window_bg 空行充当 `Constraint::Min(0)` spacer）。
+- **整屏底色靠逐 span 合成**：OpenTUI 无等价于 ratatui 整屏 `Block::bg` 的填充，且**未显式给 bg 的文本 run 会落到终端默认底色**（真机实测：标签/倒计时背后出现黑条）。故适配器把 `window_bg` 作为 base bg 合成到每个无自有 bg 的 span 上（badge 保留自有 bg），并在每行右侧补 window_bg 空白 run 铺到满宽、行间补满宽空行铺到满高。Rust 侧整屏底色由 ratatui 后端统一清屏，无此逐 span 处理。
+- **Bun/Windows 控制台 raw mode 差异（重要）**：Rust 靠 crossterm `enable_raw_mode` 关 echo；但 **Bun 1.4.2 的 `process.stdin.setRawMode()` 在 Windows 下不改动 OS 控制台模式**（FFI 实测 `ENABLE_ECHO_INPUT` 位前后不变），而 OpenTUI 的 `setupTerminal` 又把 raw 调用包在 `if (stdin.setRawMode)` 里——于是控制台停在 cooked 态，conhost 把每次按键回显到光标处（实测 `Resets in 2r'r'r`）。对策：`ts/src/tui/console.ts` 用 `bun:ffi` 直接 `SetConsoleMode`（清 `ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT`、置 `ENABLE_WINDOW_INPUT`），且**因 Bun 每读一次 stdin 会把模式翻回 cooked，须在每次输入事件与每次重绘前重申 raw**（`ensureRawMode`），退出路径 `restore` 还原原模式。这是 TS 版相对 Rust 的额外机制，Rust 无对应代码。
+- 渲染层键事件挂在 `renderer.keyInput`（非 `renderer` 本身，实测 `renderer.on("keypress")` 收不到）；`keyrelease` 不订阅（真终端会投递，路由器须忽略）。
 
 ## 6. 无单实例互斥、启动缩窗（对应 SPEC 20）
 

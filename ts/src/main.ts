@@ -6,6 +6,7 @@
 import { fetchQuota, quotaResultToSerde } from "./core/quota.ts";
 import { serdePrettyJson } from "./core/json.ts";
 import { checkUpdate, dotnetBool } from "./core/update.ts";
+import { runTui } from "./tui/app.ts";
 
 async function main(args: string[]): Promise<number> {
   if (args.includes("--test-fetch")) {
@@ -23,11 +24,9 @@ async function main(args: string[]): Promise<number> {
     return 0;
   }
 
-  process.stderr.write(
-    "kimi-planbar-tui-ts: the terminal UI is milestone M2 (see docs/TS-EDITION-PLAN.md).\n" +
-      "Self-checks available: --test-fetch, --test-update\n",
-  );
-  return 1;
+  // SPEC 19: unrecognized arguments are ignored and the TUI starts normally.
+  await runTui();
+  return 0;
 }
 
 process.exitCode = await main(process.argv.slice(2));

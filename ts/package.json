@@ -14,5 +14,8 @@
     "test": "TZ=Asia/Shanghai bun test",
     "parity": "bun --use-system-ca run test/parity/diff.ts",
     "build:exe": "bun build --compile ./src/main.ts --outfile dist/kpt-tui.exe"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.11"
   }
 }

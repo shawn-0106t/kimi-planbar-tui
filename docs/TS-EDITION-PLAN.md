@@ -93,7 +93,11 @@ ts/
 4. `main.ts` 先只实现 `--test-fetch` / `--test-update`（打印缩进 JSON / 单行，输出后退出，SPEC 19）
 5. 验收：`bun test` 全绿；`bun run src/main.ts --test-fetch` 与 `rust/target/debug/kimi-planbar-tui.exe --test-fetch` 同机背靠背 **JSON 逐字段 diff 一致**
 
-### M2：dashboard 视图
+### M2：dashboard 视图 ✅ 已完成（2026-09-20）
+
+验收实测：`bun test` 194 用例全绿（新增 dashboard 行快照 14 + OpenTUI 适配器集成 3）；`bun run parity` 仍与 Rust exe 逐字节一致；Windows Terminal 真机双主题（Moonlit/Moondark）人工对照 SPEC 11/12 通过，`q` 退出终端完整恢复。渲染层落 `ts/src/tui/`（line/dashboard/renderer/app/console 五文件），分层与残余偏差登记在 `docs/SPEC-TS-DIFF.md` §5。
+
+**M2 期间发现并修复的环境级陷阱（记入 SPEC-TS-DIFF §5）**：Bun 1.4.2 Windows 的 `process.stdin.setRawMode()` 不改动 OS 控制台模式，OpenTUI 的 `setupTerminal` 又把 raw 包在 `if (stdin.setRawMode)` 里，导致控制台停在 cooked 态、conhost 回显每次按键（真机实测 `Resets in 2r'r'r`）。对策 = `ts/src/tui/console.ts` 用 `bun:ffi` 直接 `SetConsoleMode` 进 raw，并在每次输入/重绘前重申（Bun 每读 stdin 会翻回 cooked），退出还原。另：OpenTUI 无整屏底色填充，未显式给 bg 的文本 run 会落到终端默认色（实测黑条），适配器改为把 window_bg 作为 base bg 合成到每个 span。
 
 1. `bun add @opentui/core`；`tui/app.ts` 装配 renderer + 根布局；`tui/dashboard.ts` 按 SPEC 12 线框：标题行 / 两行用量行（14 字符标签列 + 百分比 + `█`/`░` 进度条 + 倒计时）/ Extra Usage 行（含月度子行）/ 版本行 / footer
 2. 调色板按 SPEC 11.1 十色直给 `#RRGGBB`；`theme=system` 由 `core/theme.ts` 30s 轮询注册表决定
