@@ -25,6 +25,7 @@ describe("parseSemver (SPEC 17.3)", () => {
   test("exactly three numeric components", () => {
     expect(parseSemver("2.0.1")).toEqual([2n, 0n, 1n]);
     expect(parseSemver("01.0.0")).toEqual([1n, 0n, 0n]);
+    expect(parseSemver("+2.0.1")).toEqual([2n, 0n, 1n]); // u64::from_str takes '+'
     expect(parseSemver("2.0.1-rc1")).toBeNull();
     expect(parseSemver("2.0")).toBeNull();
     expect(parseSemver("2.0.1.4")).toEqual([2n, 0n, 1n]); // extra parts ignored

@@ -9,6 +9,7 @@ import {
   lineWidth,
   lineText,
   padLineToWidth,
+  sanitize,
   tline,
   tspan,
 } from "../src/tui/line.ts";
@@ -63,5 +64,35 @@ describe("padLineToWidth with wide runs (SPEC 21.3 truncation)", () => {
     const clipped = padLineToWidth(tline([tspan("😀😀", { fg: BG })]), 3, BG);
     expect(clipped.spans[0]!.text).toBe("😀");
     expect(Array.from(clipped.spans[0]!.text).length).toBe(1);
+  });
+});
+
+describe("sanitize firewall (SPEC §22.5)", () => {
+  test("whole ANSI sequences are stripped, CSI and OSC alike", () => {
+    expect(sanitize("safe\x1b[31mred\x1b[0m")).toBe("safered");
+    expect(sanitize("\x1b[2K")).toBe("");
+    expect(sanitize("\x1b]8;;https://evil\x07link\x1b]8;;\x07")).toBe("link");
+  });
+
+  test("C0, DEL and C1 control characters are stripped", () => {
+    expect(sanitize("a\x00b\x1fc\x7fd")).toBe("abcd");
+    expect(sanitize("x\x80\x85\x9fy")).toBe("xy");
+    expect(sanitize("plain text")).toBe("plain text");
+  });
+
+  test("padLineToWidth sanitizes before clipping and padding", () => {
+    // A skill description smuggling a clear-line sequence and a NUL arrives
+    // as plain text; the row still pads to the full width.
+    const line = tline([tspan("ab\x1b[2Kcd\x00", { fg: BG })]);
+    const padded = padLineToWidth(line, 10, BG);
+    expect(lineText(padded)).toBe("abcd" + " ".repeat(6));
+    expect(lineWidth(padded)).toBe(10);
+  });
+
+  test("a span emptied by the firewall drops out instead of padding wrong", () => {
+    const line = tline([tspan("\x1b[31m", { fg: BG }), tspan("ok")]);
+    const padded = padLineToWidth(line, 6, BG);
+    expect(lineText(padded)).toBe("ok" + " ".repeat(4));
+    expect(lineWidth(padded)).toBe(6);
   });
 });

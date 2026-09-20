@@ -116,11 +116,39 @@ function truncateToCells(text: string, cells: number): string {
   return out;
 }
 
+/** Injection firewall for external strings (skill names/descriptions, API
+ *  error text), the OpenTUI-side counterpart of the Node edition's
+ *  `sanitize()` (SPEC §22.5): StyledText does not filter control characters,
+ *  so whole ANSI sequences are stripped first, then any leftover C0/DEL/C1
+ *  controls — nothing that enters a frame may move the cursor or change
+ *  terminal state. */
+export function sanitize(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text
+    .replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])/g, "")
+    .replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+}
+
+/** Sanitize every span's text; runs emptied by the stripping are dropped. */
+function sanitizeSpans(line: TuiLine): TuiLine {
+  const spans: TuiSpan[] = [];
+  let dirty = false;
+  for (const s of line.spans) {
+    const text = sanitize(s.text);
+    if (text !== s.text) dirty = true;
+    if (text === "") continue;
+    spans.push(text === s.text ? s : { ...s, text });
+  }
+  return dirty || spans.length !== line.spans.length ? { spans } : line;
+}
+
 /** Bring a line to exactly `width` cells: clip the overflow (ratatui clips
  *  each area at its right edge; a too-long line here would otherwise reach the
  *  renderer unbounded) and append a window_bg filler run so the row paints
- *  edge to edge (probe trap 3). */
+ *  edge to edge (probe trap 3). This is also the render-path choke point where
+ *  external text passes the sanitize() firewall (SPEC §22.5). */
 export function padLineToWidth(line: TuiLine, width: number, windowBg: string): TuiLine {
+  line = sanitizeSpans(line);
   let spans = line.spans;
   let used = lineWidth(line);
   if (used > width) {

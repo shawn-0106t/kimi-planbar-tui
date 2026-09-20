@@ -55,11 +55,11 @@ export interface QuotaResult {
   error: string | null;
 }
 
-const failed = (kind: string): QuotaResult => ({
+const failed = (kind: string, nowMs?: () => number): QuotaResult => ({
   fiveHour: null,
   week: null,
   extra: null,
-  fetchedAt: dtFromNow(),
+  fetchedAt: dtFromNow((nowMs ?? Date.now)()),
   error: kind,
 });
 
@@ -270,7 +270,7 @@ const isTimeout = (err: unknown): boolean => {
 export async function fetchQuota(deps: FetchDeps = {}): Promise<QuotaResult> {
   const url = deps.url ?? USAGES_URL;
   const token = deps.token !== undefined ? deps.token : loadToken();
-  if (token === null) return failed("no-token");
+  if (token === null) return failed("no-token", deps.nowMs);
 
   const timeoutMs = deps.timeoutMs ?? HTTP_TIMEOUT_MS;
   const doFetch = deps.fetchImpl ?? fetch;
@@ -282,13 +282,13 @@ export async function fetchQuota(deps: FetchDeps = {}): Promise<QuotaResult> {
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
-    return failed(isTimeout(err) ? "TaskCanceledException" : "HttpRequestException");
+    return failed(isTimeout(err) ? "TaskCanceledException" : "HttpRequestException", deps.nowMs);
   }
   if (!response.ok) {
     // Drain the body so the keep-alive connection returns to the pool; the
     // fetch itself already failed semantically, so any drain error is moot.
     void response.arrayBuffer().catch(() => {});
-    return failed("HttpRequestException");
+    return failed("HttpRequestException", deps.nowMs);
   }
 
   // reqwest surfaces a body-read failure inside .json(); the same holds here, so
@@ -297,13 +297,13 @@ export async function fetchQuota(deps: FetchDeps = {}): Promise<QuotaResult> {
   try {
     text = await response.text();
   } catch {
-    return failed("JsonException");
+    return failed("JsonException", deps.nowMs);
   }
   let root: JValue;
   try {
     root = parseJsonValue(text);
   } catch {
-    return failed("JsonException");
+    return failed("JsonException", deps.nowMs);
   }
   return parseQuotaPayload(root, dtFromNow((deps.nowMs ?? Date.now)()));
 }

@@ -41,34 +41,67 @@ export function createPolling(deps: PollingDeps): Polling {
   let next = FIRST_DELAY_MS;
   let staleRetimeMs: number | null = null;
   let running = false;
+  // Generation counter bumped by every arm(): a refresh whose await completes
+  // after a newer arm (start/reschedule/an earlier manual re-arm) must not
+  // re-arm over the newer schedule — the Rust reference drains its stale
+  // retime hint instead (polling.rs:48-62), and this is the TS equivalent.
+  let armEpoch = 0;
+  // In-flight serialization: a manual refresh racing a scheduled tick must not
+  // leave two fetches in flight — the later finisher would overwrite lastQuota
+  // with the older result. Requests queue behind one another instead.
+  let inFlight: Promise<void> | null = null;
 
   const periodMs = (): number =>
     Math.min(TIMEOUT_MAX_MS, Math.max(1, deps.state.settings.refreshMinutes) * 60_000);
 
   const arm = (ms: number): void => {
+    armEpoch++;
     if (cancel !== null) cancel();
     next = ms;
     cancel = running ? setTimer(ms, () => void tick()) : null;
   };
 
+  const retimeFor = (result: QuotaResult): number =>
+    result.error !== null ? FAILURE_RETRY_MS : periodMs();
+
   const tick = async (): Promise<void> => {
-    const result = await safeRefresh();
-    if (!running) return;
+    const epoch = armEpoch;
+    const result = await refreshSerialized();
+    if (!running || armEpoch !== epoch) return;
     // The retime hint a refresh leaves behind is the same delay this computes
     // (polling.rs:65-70); draining it keeps a reschedule from being overwritten.
     staleRetimeMs = null;
-    arm(result.error !== null ? FAILURE_RETRY_MS : periodMs());
+    arm(retimeFor(result));
   };
 
-  async function safeRefresh(): Promise<QuotaResult> {
+  async function fetchAndPublish(): Promise<QuotaResult> {
     const result = await deps.fetchQuota();
     if (result.error !== null && deps.state.lastQuota !== null) {
       fillMissingFrom(result, deps.state.lastQuota);
     }
     deps.state.lastQuota = result;
     deps.publish(result);
-    staleRetimeMs = result.error !== null ? FAILURE_RETRY_MS : periodMs();
+    staleRetimeMs = retimeFor(result);
     return result;
+  }
+
+  /** Queue the refresh behind any in-flight one; the first fetch starts
+   *  synchronously, and a rejection never poisons the chain. */
+  function refreshSerialized(): Promise<QuotaResult> {
+    if (inFlight === null) {
+      const run = fetchAndPublish();
+      inFlight = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    }
+    const chained = inFlight.then(fetchAndPublish);
+    inFlight = chained.then(
+      () => undefined,
+      () => undefined,
+    );
+    return chained;
   }
 
   return {
@@ -83,9 +116,11 @@ export function createPolling(deps: PollingDeps): Polling {
       cancel = null;
     },
     async safeRefresh(): Promise<QuotaResult> {
-      const result = await safeRefresh();
-      // A manual refresh moves the scheduled tick, like the retime notify does.
-      if (running) arm(staleRetimeMs ?? next);
+      const epoch = armEpoch;
+      const result = await refreshSerialized();
+      // A manual refresh moves the scheduled tick, like the retime notify
+      // does — unless a newer arm (a reschedule mid-fetch) already did.
+      if (running && armEpoch === epoch) arm(staleRetimeMs ?? next);
       return result;
     },
     reschedule(): void {

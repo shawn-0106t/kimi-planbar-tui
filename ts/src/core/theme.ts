@@ -46,14 +46,15 @@ export function palette(effectiveTheme: string): Palette {
 }
 
 /** `effective(configured)`: an unknown value means "follow the OS", exactly
- *  like the Rust catch-all arm. The OS answer is injected so this stays pure. */
+ *  like the Rust catch-all arm. The OS answer is injected as a thunk so a
+ *  pinned light/dark theme never spawns the registry probe. */
 export function effectiveTheme(
   configured: string,
-  system: "light" | "dark",
+  system: () => "light" | "dark",
 ): "light" | "dark" {
   if (configured === "light") return "light";
   if (configured === "dark") return "dark";
-  return system;
+  return system();
 }
 
 const PERSONALIZE_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";

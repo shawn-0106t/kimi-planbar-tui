@@ -319,7 +319,7 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
   shrinkOwnedConsoleIfOwned();
 
   const settings = loadSettings();
-  const eff = effectiveTheme(settings.theme, systemThemeSync());
+  const eff = effectiveTheme(settings.theme, () => systemThemeSync());
   const state: AppState = createAppState(settings, eff);
   const app = createUiApp();
 
@@ -333,8 +333,13 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
   const destroyRenderer = (): void => {
     if (destroyed) return;
     destroyed = true;
-    renderer.destroy();
-    restoreConsole();
+    // A renderer.destroy() throw must not skip the console restore — every
+    // exit path restores the terminal (SPEC 20).
+    try {
+      renderer.destroy();
+    } finally {
+      restoreConsole();
+    }
   };
   // A stranded terminal is the worst TUI bug (SPEC 20): restore before exit
   // on every path the loop does not control.
@@ -418,7 +423,7 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
       writeSettings(draft);
       applyAutoStart(draft);
       state.settings = draft;
-      state.effectiveTheme = effectiveTheme(draft.theme, systemThemeSync());
+      state.effectiveTheme = effectiveTheme(draft.theme, () => systemThemeSync());
       polling.reschedule();
     },
   };
@@ -438,7 +443,7 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
     // SPEC 20: theme=system polls the registry every 30 s; a change redraws
     // immediately, like every other event.
     if (state.settings.theme !== "system") return;
-    const next = effectiveTheme(state.settings.theme, refreshSystemThemeCache());
+    const next = effectiveTheme(state.settings.theme, () => refreshSystemThemeCache());
     if (next === state.effectiveTheme) return;
     state.effectiveTheme = next;
     draw();

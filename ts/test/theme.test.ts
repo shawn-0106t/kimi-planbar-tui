@@ -36,11 +36,24 @@ describe("palette (SPEC 11.1)", () => {
 
 describe("effective theme (SPEC 11.1, 20)", () => {
   test("only the literal light/dark pin the theme; anything else follows the OS", () => {
-    expect(effectiveTheme("light", "dark")).toBe("light");
-    expect(effectiveTheme("dark", "light")).toBe("dark");
-    expect(effectiveTheme("system", "dark")).toBe("dark");
-    expect(effectiveTheme("garbage", "light")).toBe("light");
-    expect(effectiveTheme("", "dark")).toBe("dark");
+    expect(effectiveTheme("light", () => "dark")).toBe("light");
+    expect(effectiveTheme("dark", () => "light")).toBe("dark");
+    expect(effectiveTheme("system", () => "dark")).toBe("dark");
+    expect(effectiveTheme("garbage", () => "light")).toBe("light");
+    expect(effectiveTheme("", () => "dark")).toBe("dark");
+  });
+
+  test("the OS probe is lazy: a pinned theme never calls it", () => {
+    let probed = false;
+    const probe = (): "light" | "dark" => {
+      probed = true;
+      return "dark";
+    };
+    expect(effectiveTheme("light", probe)).toBe("light");
+    expect(effectiveTheme("dark", probe)).toBe("dark");
+    expect(probed).toBe(false);
+    expect(effectiveTheme("system", probe)).toBe("dark");
+    expect(probed).toBe(true);
   });
 });
 

@@ -28,7 +28,8 @@ export function parseSemver(value: string): [bigint, bigint, bigint] | null {
   if (parts.length < 3) return null;
   const parsed: bigint[] = [];
   for (const part of parts.slice(0, 3)) {
-    if (!/^\d+$/.test(part)) return null;
+    // u64::from_str accepts a leading '+', unlike a plain /^\d+$/.
+    if (!/^\+?\d+$/.test(part)) return null;
     const number = BigInt(part);
     if (number > 18446744073709551615n) return null;
     parsed.push(number);

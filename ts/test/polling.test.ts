@@ -49,7 +49,10 @@ const harness = (first: QuotaResult = result(null, "a")): Harness => {
     queue: (r) => void queue.push(r),
     fire: async () => {
       const next = scheduled.shift();
+      // A macrotask flush: the serialized refresh chain takes a few more
+      // microtask hops than a bare await can drain before the tick re-arms.
       if (next) await next.run();
+      await new Promise((r) => setTimeout(r, 0));
     },
   };
 };
@@ -168,6 +171,80 @@ describe("reschedule and manual refresh", () => {
     expect(h.published).toHaveLength(0);
   });
 });
+
+describe("arm epoch and in-flight serialization (SPEC 16.5)", () => {
+  /** A harness whose fetches stay in flight until the test resolves them. */
+  const blockingHarness = () => {
+    const scheduled: { ms: number; run: () => void }[] = [];
+    const published: QuotaResult[] = [];
+    const resolvers: ((r: QuotaResult) => void)[] = [];
+    const state = createAppState(defaultSettings(), "light");
+    const polling = createPolling({
+      state,
+      fetchQuota: () => new Promise<QuotaResult>((res) => resolvers.push(res)),
+      publish: (r) => void published.push(r),
+      setTimer: (ms, run) => {
+        scheduled.push({ ms, run });
+        return () => {
+          const at = scheduled.findIndex((s) => s.run === run);
+          if (at >= 0) scheduled.splice(at, 1);
+        };
+      },
+    });
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    return { scheduled, published, resolvers, state, polling, flush };
+  };
+
+  test("an in-flight tick must not cancel a reschedule armed while it awaited", async () => {
+    const h = blockingHarness();
+    h.polling.start();
+    const first = h.scheduled.shift()!;
+    expect(first.ms).toBe(2000);
+    first.run(); // the tick's fetch is now in flight
+    // Settings saved mid-fetch: reschedule arms a fresh 2s tick.
+    h.polling.reschedule();
+    expect(lastDelayMs(h.scheduled)).toBe(2000);
+    // The in-flight tick completes; without the epoch guard it would re-arm
+    // 30s/period over the reschedule's 2s tick.
+    h.resolvers[0]!(result(null, "late"));
+    await h.flush();
+    expect(lastDelayMs(h.scheduled)).toBe(2000);
+  });
+
+  test("an in-flight manual refresh must not re-arm over a reschedule", async () => {
+    const h = blockingHarness();
+    h.polling.start();
+    const manual = h.polling.safeRefresh();
+    h.polling.reschedule();
+    expect(lastDelayMs(h.scheduled)).toBe(2000);
+    h.resolvers[0]!(result(null, "late"));
+    await manual;
+    expect(lastDelayMs(h.scheduled)).toBe(2000);
+  });
+
+  test("a manual refresh queues behind an in-flight tick instead of racing it", async () => {
+    const h = blockingHarness();
+    h.polling.start();
+    h.scheduled.shift()!.run(); // tick fetch #1 in flight
+    const manual = h.polling.safeRefresh();
+    // No second fetch while the first is still in flight.
+    expect(h.resolvers).toHaveLength(1);
+    const a = result(null, "a");
+    a.fiveHour!.percent = 1;
+    h.resolvers[0]!(a);
+    await h.flush(); // the queued manual fetch starts now
+    expect(h.resolvers).toHaveLength(2);
+    const b = result(null, "b");
+    b.fiveHour!.percent = 2;
+    h.resolvers[1]!(b);
+    await manual;
+    // Publish order follows fetch order — the older result can never land last.
+    expect(h.published.map((r) => r.fiveHour!.percent)).toEqual([1, 2]);
+    expect(h.state.lastQuota!.fiveHour!.percent).toBe(2);
+  });
+});
+
+const lastDelayMs = (scheduled: { ms: number }[]): number => scheduled[scheduled.length - 1]!.ms;
 
 test("the published shape is what --test-fetch prints", async () => {
   const h = harness();
