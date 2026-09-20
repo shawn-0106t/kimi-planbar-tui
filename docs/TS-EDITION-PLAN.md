@@ -1,6 +1,6 @@
 # Kimi Planbar TUI — TS 版（Bun + OpenTUI）实施计划
 
-> 状态：待实施（M0 仓库重组与 Bun 环境安装已于 2026-09-19 完成）
+> 状态：实施中 — M0（仓库重组 + Bun 环境）与 **S0（OpenTUI 能力冒烟，结论 GO，见 §2.6）** 已于 2026-09-19 完成；M1 core 层进行中
 > 行为契约：`docs/SPEC.md`（与 Rust 版共享；TS 版实现差异点见本文 §6，实现验证后需回写 SPEC 对应章节）
 > 前身：托盘版仓库的 `docs/TUI-PLAN-TS-BUN.md`（候选方案，当时未实施；本文档取代之并适配 monorepo 落点）
 
@@ -12,7 +12,7 @@
 - **测试**：`bun:test` 内置
 - **版本**：`ts/package.json` 独立从 0.1.0 起步
 - **数据契约**：与 Rust 版完全一致——凭证链、`settings.json` schema、`portable.dat`、HKCU Run 键名 `KimiPlanbarTui`、app-data 目录 `%APPDATA%\KimiPlanbarTui\`（两版同装时自启键后写覆盖，与托盘三版共享互斥名同思路，有意为之）
-- **零其他运行时依赖**：HTTP 用内置 `fetch` + `AbortSignal.timeout(10_000)`；子进程用 `Bun.spawn`；注册表只走 spawn `reg.exe`
+- **渲染层路线（2026-09-19 二次确认）**：本计划（Bun + OpenTUI）为**采纳方案**。`docs/TS-EDITION-PLAN-NODEJS.md`（Node.js + 手写 ANSI）是同日起草的**未采纳备选存档**，两路线共用同一 `ts/` 落点、互斥，保留仅为记录取舍理由；M1 已产出的 core 层基本 runtime 无关（仅 2 处 `Bun.*`），日后若要改道成本已评估过。
 
 ## 2. 环境冒烟实测结论（2026-09-19，Bun 1.4.2 / 中文 Windows 11 / ESET）
 
@@ -25,6 +25,32 @@
 3. **`Bun.spawn` 调 `reg.exe` + `TextDecoder('gbk')` 解码正常**（中文系统 reg 输出为 GBK；`AppsUseLightTheme` 正确读出）。自启只做写/删、不做读回校验，规避乱码面。
 4. **stdin raw mode**：管道/非 TTY 下 `process.stdin.setRawMode` 不可用属预期；OpenTUI 通过自己的 FFI 设置控制台模式，不依赖它。
 5. Bun 安装注意：`npm i -g bun` 会被 npm allowScripts 策略拦截 postinstall，需 `npm install -g --allow-scripts=bun bun`。
+
+### 2.6 S0 OpenTUI 能力冒烟实测（2026-09-19，@opentui/core 0.5.11 + core-win32-x64，Bun 1.4.2）
+
+结论：**GO**——OpenTUI 可以承载 M2 的三个视图，但渲染层必须绕开四条 API 陷阱。探针代码在 `%TEMP%\kpt-s0\probe*.ts`（一次性，不入仓）。
+
+通过项：
+
+| 能力 | 实测结果 |
+|---|---|
+| win32-x64 原生包 | `bun add @opentui/core` 自动带上 `@opentui/core-win32-x64`，`createTestRenderer()` 可跑 |
+| 单行内 per-span fg/bg/bold/underline | ✅（`vstyles.bg(bg, vstyles.fg(fg, text))` 组合，`attributes` 位：bold=1、underline=8） |
+| 东亚 Ambiguous 字形格宽 | `█ ░ · ¥ ● ↑ →` 均按 **1 cell** 计，`中` 按 2 cell → 与 ratatui 一致，列位不会漂 |
+| 硬裁剪 | 90 字符塞进 width 40 → 裁到 40 cell，不折行不溢出到下一行（`wrapMode: "none"`） |
+| 键事件 | `keypress` 带 `name/ctrl/shift/sequence`；`r/s/k/q/c` 小写、`R` 为 `name:"r"+shift:true`（复刻 Rust 只认小写的行为需自行判 shift）、Esc → `name:"escape"`、方向键 → `name:"up"`、Space → `space`、Enter → `return`、Ctrl+C → `name:"c"+ctrl:true` 且不拦截；测试 mock 不投递 `keyrelease`（真终端会，路由器须忽略） |
+| `renderer.destroy()` | 正常返回 |
+| `reg.exe` 引号 | `Bun.spawn` 传 `"\"<path>\""` 后 `reg query` 回读**字节一致**，探针键已删；`AppsUseLightTheme` 文本形态 `0x1` 可解析 |
+| `kimi --version` | `Bun.spawn(["kimi","--version"])` 不经 shell 直接拿到 `2.0.1\n`（`Bun.which('kimi')` = `~\.kimi-code\bin\kimi.exe`），与 Rust 版 `local=` 一致 |
+
+四条必须绕开的陷阱（M2 渲染层设计约束）：
+
+1. **就地改 `.content` 不重绘**：`text.content = new StyledText([...])` 后即便调 `requestRender()` / `invalidateMeasurements()` 画面仍是旧文案。可行路径是**每行一个 `Text` 句柄、重绘时销毁重建**——`renderer.root.add()` 在挂载之后仍可正常出帧（实测新行出现在下一行）；`renderer.root.children` 不对外暴露，句柄数组须自己持有。嵌套 `Box.add()` 挂载后追加子节点**不出画**，故子节点只能在构造时一次给定。
+2. **`position:"absolute"` + `x/y` 在测试渲染器里被忽略**（所有绝对定位节点叠在第 0 行）→ 布局一律走**流式**：一 `Line` = 一个 `height:1` 的 `Text`，按行序 add，footer 前放一个 `flexGrow:1` 的空白 spacer（对应 Rust 的 `Constraint::Min(0)`）。
+3. **底纹不铺满**：未被文本占据的 cell 是 transparent（`rgba(0,0,0,0)`），没有一个等价于 ratatui `Block::bg` 的整屏填充。对策 = `Line` 模型每行右侧补一段 `window_bg` 底纹的空白 run 补到满宽（实测整行 `" ".repeat(width)` + bg 可正常上色）。
+4. **测试渲染器 `resize()` 直接崩**（`Failed to get next buffer`）→ 快照测试按尺寸各建一个 renderer；真实 resize 只能在 M2 于 Windows Terminal 里验。
+
+附带偏差：`fg:"white"` 被解析为 `#FFFFFF`（`rgba(1,1,1,1)`），而 Rust 侧 `Color::White` 经 crossterm 发的是 SGR 37（终端调色板白）。SPEC 11.1 写的是 `#FFFFFF`，TS 按字面实现即与 SPEC 一致、与 Rust 实际字节不一致——记入 `SPEC-TS-DIFF.md`。
 
 ## 3. 目录与模块设计
 
@@ -53,7 +79,9 @@ ts/
 
 ## 4. 实施步骤
 
-### M1：core 八模块 + 单测
+### M1：core 八模块 + 单测 ✅ 已完成（2026-09-19）
+
+验收实测：`bun test` 177 用例全绿（含 Rust oracle golden 全等断言）；`bun run parity` 与 `rust/target/debug/kimi-planbar-tui.exe` 背靠背比对，`--test-fetch` / `--test-update` 除 `fetchedAt` 的**值**以外逐字节一致，且成功路径与 `no-token` 分支两种情形都验到（本机 token 时效仅数十分钟）。唯一豁免项与新增差异条文登记在 `docs/SPEC-TS-DIFF.md`；golden 由 `ts/test/parity/make-oracle.ts` 从真实 Rust 解析代码再生。
 
 1. 建 `ts/` 骨架：`package.json`（独立 0.1.0）、`tsconfig.json`；`bun install`
 2. 按依赖顺序移植 core（注释引用 SPEC 章节号，与 Rust 版同风格）：`format.ts` → `credentials.ts` → `quota.ts` → `settings.ts` → `theme.ts` → `skills.ts` → `update.ts` → `polling.ts`；对照 `rust/src/*.rs` 1:1 行为移植

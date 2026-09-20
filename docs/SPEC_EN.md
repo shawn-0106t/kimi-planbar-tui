@@ -9,6 +9,8 @@
 > Chapter numbering matches the tray edition's (kimi-planbar-tray) SPEC for cross-reference; **chapter 10 (window spec), chapter 14 (tray behavior), and chapter 15 (animations) do not apply to the TUI edition** and are short stubs explaining why. Where content is identical to the tray edition, the contract is restated in full — this document stands alone and does not depend on the tray edition's SPEC.
 >
 > `SPEC x.y` citations in code comments refer to chapter numbers in this document; check the corresponding Part 2 chapter before changing behavior, and update the chapter whenever behavior changes.
+>
+> TS-edition implementation deltas (Bun + OpenTUI) live in [SPEC-TS-DIFF.md](SPEC-TS-DIFF.md), filed under the chapter numbers of this document.
 
 ---
 
