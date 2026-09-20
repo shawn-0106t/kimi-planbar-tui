@@ -45,10 +45,12 @@ Data contract shared with the tray edition: same credential chain, same `setting
 │   ├── src/core/               # 10 UI-agnostic modules mirroring rust/src/*.rs (no @opentui imports allowed)
 │   ├── src/tui/                # OpenTUI render layer: line, dashboard, settingsView, skillsView, renderer, app, console, shrink
 │   ├── src/main.ts             # entry; --test-fetch / --test-update before anything else
+│   ├── scripts/verify/         # SPEC 20 real-terminal probes: console/Ctrl+C key-capture launchers + parse-ctrlc (headless)
 │   └── test/                   # bun:test suites + test/parity/ (Rust oracle goldens, diff.ts) + console/system-ca probes
 ├── ts-nodejs/                  # TS edition (Node): Node 24 + handwritten ANSI, same SPEC contract, independent version
 │   ├── package.json            # scripts: dev / test / typecheck / parity / selfcheck:* / build:exe; name kimi-planbar-tui-ts-nodejs
-│   ├── src/core/               # the same 10 modules, ported from ts/src/core (only 3 Bun.* call sites de-Bun'd)
+│   ├── src/core/               # the same 10 modules, ported from ts/src/core (only 3 Bun.* call sites de-Bun'd);
+│   │                           # does NOT yet carry the 2026-09-20 M1 core fixes — see SPEC 22.2's qualifier
 │   ├── src/tui/                # handwritten ANSI layer: ansi, wcwidth, screen, terminal + views (dashboard, settingsView, skillsView, app)
 │   ├── src/main.ts             # entry; --test-fetch / --test-update before anything else
 │   ├── scripts/                # run-tests.mjs (TZ pin), run-parity.mjs, build-sea.mjs, verify/ (WT window probing helpers)
@@ -56,7 +58,9 @@ Data contract shared with the tray edition: same credential chain, same `setting
 ├── docs/
 │   ├── SPEC.md                 # authoritative behavior contract (Chinese), shared by all three editions;
 │   │                           # chapter 22 registers where each TS edition is NOT equivalent to Rust
-│   └── SPEC_EN.md              # English translation, identical chapter numbering
+│   ├── SPEC_EN.md              # English translation, identical chapter numbering
+│   └── REVIEW-M1.md            # M1 core-layer audit ledger: 5 Major + 7 Minor, plus a measured
+│                               # status table (file:line per item, incl. what is deliberately untested)
 ├── AGENTS.md / README.md / README_CN.md
 ├── LICENSE                     # MIT © Shawn Qi
 └── NOTICE                      # portions © baigong-ai / kimi-planbar
