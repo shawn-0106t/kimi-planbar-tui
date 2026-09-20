@@ -35,7 +35,7 @@
 ## 4. 版本检查（对应 SPEC 17.1 / 17.2）
 
 - changelog 的 Range 请求必须带 **`Accept-Encoding: identity`**：GitHub Pages 返回 206 + gzip 时 Bun 解压分片会抛 `ZlibError`。Rust 的 reqwest 不受影响。
-- 本机 ESET 做 TLS 拦截、其根证书不在 Bun 自带的 Mozilla CA 库内 → 跑 GitHub API 兜底需要运行时 **`--use-system-ca`**（已写进 `ts/package.json` 的脚本）。`bun build --compile` 产物如何固化该开关仍是 M4 开放问题；`moonshotai.github.io` 与 `api.kimi.com` 不受拦截，故主路径不依赖它。
+- 本机 ESET 曾做 TLS 拦截、其根证书不在 Bun 自带的 Mozilla CA 库内 → 跑 GitHub API 兜底需要运行时 **`--use-system-ca`**（已写进 `ts/package.json` 的脚本）。**M4 复测（2026-09-20）：该拦截当前不复现**——不带任何开关的 `bun run src/main.ts --test-update` 与编译产物 `dist/kpt-tui.exe` 都能正常拿到 `api.github.com`（`checkFailed=False`），复测脚本留在 `ts/test/system-ca-probe.ts`（可 `bun build --compile` 后分别带/不带 `NODE_USE_SYSTEM_CA`、`BUN_USE_SYSTEM_CA` 跑）。结论：`bun build --compile` **没有**把该开关固化进产物的手段（编译期无此参数、bunfig 无此键、两个环境变量在本机因无失败样本而不可证），因此按 TS-EDITION-PLAN §7 的兜底方案处理——README 注明「TLS 检查类安全软件环境下，编译产物的 GitHub API 兜底会静默降级为 checkFailed，额度与 changelog 主路径不受影响」，脚本运行路径继续带 `--use-system-ca`。`moonshotai.github.io` 与 `api.kimi.com` 不受拦截。
 - `kimi --version` 经 `Bun.spawn`（实测不走 shell 即可拿到版本号），5 s 超时后 `kill()`，stdout+stderr 按此顺序 lossy 拼接后取首个 `\d+\.\d+\.\d+`。
 
 ## 5. 配色与渲染层（对应 SPEC 11.1 / 20）

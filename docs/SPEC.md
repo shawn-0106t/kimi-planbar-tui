@@ -50,11 +50,14 @@ Windows 终端常驻仪表盘（无托盘、无窗口、无动画），让 Kimi 
 
 ### 3.1 仓库结构
 
-Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版（Bun + OpenTUI）规划位于 `ts/`，与本规格共享行为契约：
+Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版（Bun + OpenTUI）位于 `ts/`，与本规格共享行为契约：
 
 - `rust/Cargo.toml` / `rust/Cargo.lock` — 包名与二进制名均为 `kimi-planbar-tui`
 - `rust/src/` — 后端 core 模块（自托盘版 `rust/src-tauri/src/` 去 Tauri 化移植）+ `rust/src/format.rs`（格式化 helper，移植自托盘版前端 `src/common.ts`）+ `rust/src/app.rs` 与 `rust/src/ui/`（全新代码：事件循环与 ratatui 视图层）
-- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`），两版共享
+- `ts/package.json` / `ts/tsconfig.json` — 包名 `kimi-planbar-tui-ts`，版本独立从 0.1.0 起步
+- `ts/src/core/` — 与 Rust core 行为 1:1 的十个模块（凭证链、quota、polling、settings、skills、update、format、theme、state、严格 JSON）；禁止 import 任何 `@opentui` 符号
+- `ts/src/tui/` — OpenTUI 渲染层（line / dashboard / settingsView / skillsView / renderer / app / console / shrink），与 core 严格分层，可整体替换
+- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）两版共享；**TS 版与 Rust 版不等价的实现机制统一登记在 `docs/SPEC-TS-DIFF.md`**，按本规格章节号归档，实施计划见 `docs/TS-EDITION-PLAN.md`
 - 根目录：`AGENTS.md`、`README.md`、`README_CN.md`、`LICENSE`、`NOTICE`
 
 ### 3.2 进程与视图模型
@@ -158,9 +161,21 @@ cargo run               # 开发运行（debug 构建可直接用——没有内
 
 release exe 由 `rust/build.rs`（`winresource` build-dependency）嵌入 Windows VERSIONINFO 资源与应用图标 `rust/assets/icon.ico`（Kimi logo，归属声明见 NOTICE）：FileDescription / ProductName / CompanyName / LegalCopyright / Comments 为固定字符串，FileVersion/ProductVersion 自动取自 `CARGO_PKG_VERSION`——**版本号唯一来源仍是 `rust/Cargo.toml`**。嵌入失败只输出 `cargo:warning`，不使构建失败（无 Windows SDK rc.exe 的机器也能正常编译，只是 exe 缺元数据）。
 
+**TS 版**（前提：Windows + Bun ≥ 1.3，无 Cargo 依赖）：
+
+```bash
+cd ts
+bun install
+bun run dev          # 开发运行（bun ... src/main.ts）
+bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行时，~90 MB）
+```
+
+产物同样受"终端要求"约束（Windows Terminal / VS Code 集成终端为基准）。`ts/dist/` 已 gitignore，不分发进仓库。
+
 ### 7.2 测试
 
 - `cargo test`：skills frontmatter 解析单测（自托盘版移植）+ quota JSON 解析单测（字符串/数字混排、`isEnabled=false`、单位四舍五入、除零）——本项目族首个真正的解析测试套件
+- **TS 版**：`cd ts && bun run test`（`bun:test`，用例对照 `rust/src/` 单测 1:1 移植，并额外对 Rust oracle golden 做全等断言；时区由脚本固定为 `Asia/Shanghai`，直接 `bun test` 会因时区使 golden 失败）。跨版本一致性：`bun run parity` 与本机 Rust exe 背靠背比对两个无头自检；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 比对编译产物。验证方法与豁免项见 `docs/SPEC-TS-DIFF.md` §1
 - 无头自检（详见第 19 章）：`--test-fetch` / `--test-update`，无互斥锁，天然可与运行中实例并存
 - 一致性验证：与托盘版同机背靠背跑 `--test-fetch`，JSON 逐字段 diff
 - 视觉验证：在 Windows Terminal 双主题下人工对照第 11/12 章
@@ -507,8 +522,8 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ## 20. 其他实现细节（TUI 专有）
 
-- **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。终端被留在 raw mode 是 TUI 最严重的事故。
-- **启动时最小窗口（72×13）**：`run()` 起始、终端初始化之前，把窗口收缩到线框布局的最小尺寸（72 列 × 13 行，常量 `MIN_WIN_COLS`/`MIN_WIN_ROWS`）。**守卫**：仅当进程独占控制台时执行——`GetConsoleProcessList` 返回恰好 1 个附加进程（双击/新开窗口启动）；从已有终端会话（cmd / pwsh / Git Bash / 其他 WT 标签页）启动时控制台是共享的，绝不改动用户窗口。两条 best-effort 通道，异常静默吞掉：(a) xterm 窗口操作转义 `ESC [ 8 ; 13 ; 72 t`（Windows Terminal 1.22+ 支持）；(b) conhost Win32 序列：先 `SetConsoleWindowInfo` 缩视口到 1×1 → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` 设为完整 72×13 矩形。
+- **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。终端被留在 raw mode 是 TUI 最严重的事故。**TS 版**：panic hook 的等价物是 `process.on('uncaughtException'/'unhandledRejection')`，raw mode 须由 `bun:ffi SetConsoleMode` 显式设置并在每次输入/重绘前重申（Bun/Windows 的 `setRawMode` 不改动 OS 控制台模式），机制与实测见 `docs/SPEC-TS-DIFF.md` §5。
+- **启动时最小窗口（72×13）**：`run()` 起始、终端初始化之前，把窗口收缩到线框布局的最小尺寸（72 列 × 13 行，常量 `MIN_WIN_COLS`/`MIN_WIN_ROWS`）。**守卫**：仅当进程独占控制台时执行——`GetConsoleProcessList` 返回恰好 1 个附加进程（双击/新开窗口启动）；从已有终端会话（cmd / pwsh / Git Bash / 其他 WT 标签页）启动时控制台是共享的，绝不改动用户窗口。两条 best-effort 通道，异常静默吞掉：(a) xterm 窗口操作转义 `ESC [ 8 ; 13 ; 72 t`（Windows Terminal 1.22+ 支持）；(b) conhost Win32 序列：先 `SetConsoleWindowInfo` 缩视口到 1×1 → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` 设为完整 72×13 矩形。**TS 版同判据**：`GetConsoleProcessList` 经 `bun:ffi` 调用，故守卫与两条通道与本章一致；仅当 FFI 不可用时退回终端环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`TERM`/`ConEmuPID`/`MSYSTEM`），且 `stdout` 非 TTY 时一律不缩。结构体按值传参的手工打包方式与待实测项见 `docs/SPEC-TS-DIFF.md` §6。
 - **事件驱动重绘 + 250ms 心跳**：每个事件（键盘、配额 mpsc、版本 mpsc、skills mpsc、主题 tick、resize）处理后立即在事件循环顶部重绘一帧——不存在合并/节流（任意事件都会即时出帧）。另有一个 250ms 心跳 tick（`draw_tick`）在无事件时唤醒循环，保证倒计时文案持续刷新；倒计时文案随每次重绘重算（输入 `reset_at - now`），无独立 1Hz 定时器。
 - **系统主题 30s 轮询**：crossterm 无系统事件源，`theme=system` 时以 30s 间隔轮询注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` 的 `AppsUseLightTheme`（DWORD，0=dark，1=light，缺失默认 1），替代托盘版的 `WM_SETTINGCHANGE` 实时监听；`theme=light|dark` 时该轮询不影响配色。
 - **无单实例互斥锁**：允许多实例并存（每个终端一个），不创建 `KimiPlanbarTray.SingleInstance` 或任何命名互斥锁。

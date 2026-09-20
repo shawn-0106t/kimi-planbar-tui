@@ -52,11 +52,14 @@ A terminal-resident dashboard for Windows (no tray, no windows, no animations) t
 
 ### 3.1 Repository structure
 
-Monorepo layout (mirroring the tray edition's kimi-planbar-tray): the Rust crate lives in `rust/` (not a workspace); a TS edition (Bun + OpenTUI) is planned under `ts/`, sharing this behavior contract:
+Monorepo layout (mirroring the tray edition's kimi-planbar-tray): the Rust crate lives in `rust/` (not a workspace); the TS edition (Bun + OpenTUI) lives in `ts/`, sharing this behavior contract:
 
 - `rust/Cargo.toml` / `rust/Cargo.lock` — package and binary name are both `kimi-planbar-tui`
 - `rust/src/` — backend core modules (ported from the tray edition's `rust/src-tauri/src/` with Tauri removed) + `rust/src/format.rs` (formatting helpers ported from the tray frontend's `src/common.ts`) + `rust/src/app.rs` and `rust/src/ui/` (all-new code: event loop and ratatui view layer)
-- `docs/` — this specification (`SPEC.md` / `SPEC_EN.md`), shared by both editions
+- `ts/package.json` / `ts/tsconfig.json` — package name `kimi-planbar-tui-ts`, independent version starting at 0.1.0
+- `ts/src/core/` — the ten core modules behaving 1:1 with the Rust core (credentials, quota, polling, settings, skills, update, format, theme, state, strict JSON); importing any `@opentui` symbol there is forbidden
+- `ts/src/tui/` — the OpenTUI render layer (line / dashboard / settingsView / skillsView / renderer / app / console / shrink), strictly separated from core so it can be replaced wholesale
+- `docs/` — this specification (`SPEC.md` / `SPEC_EN.md`), shared by both editions; **the mechanisms where the TS edition is not equivalent to the Rust edition are registered in `docs/SPEC-TS-DIFF.md`**, filed by this document's chapter numbers; the implementation plan lives in `docs/TS-EDITION-PLAN.md`
 - Root: `AGENTS.md`, `README.md`, `README_CN.md`, `LICENSE`, `NOTICE`
 
 ### 3.2 Process and view model
@@ -160,9 +163,21 @@ Terminal requirements: **Windows Terminal / VS Code integrated terminal are the 
 
 The release exe embeds a Windows VERSIONINFO resource and the app icon via `rust/build.rs` (`winresource` build-dependency, `rust/assets/icon.ico` — the Kimi logo, attribution in NOTICE): FileDescription / ProductName / CompanyName / LegalCopyright / Comments are fixed strings, while FileVersion/ProductVersion are taken automatically from `CARGO_PKG_VERSION` — **`rust/Cargo.toml` stays the single version source**. An embedding failure only emits `cargo:warning` and never fails the build (machines without the Windows SDK rc.exe still compile; the exe simply lacks metadata).
 
+The **TS edition** (prerequisites: Windows + Bun ≥ 1.3, no Cargo involved):
+
+```bash
+cd ts
+bun install
+bun run dev          # dev run (bun ... src/main.ts)
+bun run build:exe    # single-file exe → ts/dist/kpt-tui.exe (embeds the Bun runtime, ~90 MB)
+```
+
+The same terminal baseline applies. `ts/dist/` is gitignored; binaries never enter the repository.
+
 ### 7.2 Testing
 
 - `cargo test`: skills frontmatter parser unit tests (ported from the tray edition) + quota JSON parsing unit tests (mixed string/number fields, `isEnabled=false`, unit rounding, divide-by-zero) — the first real parsing test suite in the project family
+- **TS edition**: `cd ts && bun run test` (`bun:test`, cases ported 1:1 from the Rust unit tests plus exact-equality assertions against Rust oracle goldens; the script pins the timezone to `Asia/Shanghai` — plain `bun test` breaks the goldens). Cross-edition consistency: `bun run parity` diffs both headless self-checks against the local Rust exe back to back, and `bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` does the same for the compiled build. Method and exemptions: `docs/SPEC-TS-DIFF.md` §1
 - Headless self-checks (details in chapter 19): `--test-fetch` / `--test-update`; with no mutex they naturally coexist with running instances
 - Consistency check: run `--test-fetch` back to back with the tray edition on the same machine and diff the JSON field by field
 - Visual check: manually compare against chapters 11/12 in Windows Terminal under both themes
@@ -509,8 +524,8 @@ Self-check modes print to stdout and exit. This edition has **no single-instance
 
 ## 20. Miscellaneous implementation details (TUI-specific)
 
-- **Terminal restore (highest priority)**: startup enters raw mode + alternate screen and hides the cursor; **every exit path must restore the terminal** (leave alternate screen, disable raw mode, show the cursor) — both a normal `q` quit and a panic (via a panic hook that restores before printing). Leaving the user's terminal stuck in raw mode is the worst possible TUI accident.
-- **Minimal window on launch (72×13)**: at the start of `run()`, before terminal init, the window is shrunk to the wireframe's minimal size (72 columns × 13 rows, constants `MIN_WIN_COLS`/`MIN_WIN_ROWS`). **Guard**: this only happens when the process owns its console outright — `GetConsoleProcessList` returns exactly 1 attached process (a double-click / fresh-window launch); when launched from an existing terminal session (cmd / pwsh / Git Bash / another WT tab) the console is shared and the user's window is never touched. Two best-effort channels, errors silently swallowed: (a) the xterm window-manipulation escape `ESC [ 8 ; 13 ; 72 t` (honored by Windows Terminal 1.22+); (b) the conhost Win32 sequence: `SetConsoleWindowInfo` to a 1×1 viewport → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` to the full 72×13 rect.
+- **Terminal restore (highest priority)**: startup enters raw mode + alternate screen and hides the cursor; **every exit path must restore the terminal** (leave alternate screen, disable raw mode, show the cursor) — both a normal `q` quit and a panic (via a panic hook that restores before printing). Leaving the user's terminal stuck in raw mode is the worst possible TUI accident. **TS edition**: the panic-hook equivalent is `process.on('uncaughtException'/'unhandledRejection')`, and raw mode has to be set explicitly through `bun:ffi SetConsoleMode` and re-asserted before every input event and redraw (Bun/Windows `setRawMode` does not change the OS console mode) — mechanism and measurements in `docs/SPEC-TS-DIFF.md` §5.
+- **Minimal window on launch (72×13)**: at the start of `run()`, before terminal init, the window is shrunk to the wireframe's minimal size (72 columns × 13 rows, constants `MIN_WIN_COLS`/`MIN_WIN_ROWS`). **Guard**: this only happens when the process owns its console outright — `GetConsoleProcessList` returns exactly 1 attached process (a double-click / fresh-window launch); when launched from an existing terminal session (cmd / pwsh / Git Bash / another WT tab) the console is shared and the user's window is never touched. Two best-effort channels, errors silently swallowed: (a) the xterm window-manipulation escape `ESC [ 8 ; 13 ; 72 t` (honored by Windows Terminal 1.22+); (b) the conhost Win32 sequence: `SetConsoleWindowInfo` to a 1×1 viewport → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` to the full 72×13 rect. **The TS edition uses the same guard** — `GetConsoleProcessList` is reachable through `bun:ffi`, so both channels match this bullet; only when the FFI is unavailable does it fall back to a terminal-environment-variable heuristic (`WT_SESSION`/`TERM_PROGRAM`/`TERM`/`ConEmuPID`/`MSYSTEM`), and it never shrinks when `stdout` is not a TTY. See `docs/SPEC-TS-DIFF.md` §6 for the by-value struct packing and the checks still pending a real terminal.
 - **Event-driven redraw + 250 ms heartbeat**: every event (keyboard, quota mpsc, version mpsc, skills mpsc, theme tick, resize) triggers an immediate redraw at the top of the event loop — there is no coalescing/throttling (any event produces a frame right away). A 250 ms heartbeat tick (`draw_tick`) additionally wakes the loop when idle so countdown text stays fresh; countdown text is recomputed on every redraw (input `reset_at - now`), so there is no 1 Hz timer.
 - **System theme 30 s polling**: crossterm has no system-event source, so with `theme=system` the app polls the registry value `AppsUseLightTheme` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` (DWORD, 0=dark, 1=light, default 1 if missing) every 30 s — replacing the tray edition's real-time `WM_SETTINGCHANGE` listener; with `theme=light|dark` this polling does not affect the palette.
 - **No single-instance mutex**: multiple instances are allowed (one per terminal); do not create `KimiPlanbarTray.SingleInstance` or any named mutex.

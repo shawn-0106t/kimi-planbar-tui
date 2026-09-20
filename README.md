@@ -35,7 +35,7 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 ## Download
 
-Get the latest `kimi-planbar-tui.exe` from [Releases](../../releases), or build from source (below).
+Get the latest `kimi-planbar-tui.exe` from [Releases](../../releases), or build from source (below). The same page carries the **TS edition** as `kpt-tui.exe` — the same behavior and UI implemented on Bun + OpenTUI; it is ~90 MB because it embeds the Bun runtime. If you already have Bun, you can skip the download and run `bun run dev` instead.
 
 > Windows SmartScreen may warn on first launch because the exe is not code-signed. Click "More info" → "Run anyway" — this is expected for unsigned personal builds.
 
@@ -76,12 +76,29 @@ Enable "Launch at Windows startup" in Settings (`s`). It writes a single per-use
 
 ## Build from source
 
+### Rust edition (default)
+
 Requires Rust (stable, MSVC toolchain) on Windows. Nothing else — no Node.js, no WebView2.
 
 ```bash
 cd rust
 cargo build --release   # single static exe at rust/target/release/kimi-planbar-tui.exe
 ```
+
+### TS edition (Bun + OpenTUI)
+
+Requires Bun ≥ 1.3 on Windows (install it with `npm install -g --allow-scripts=bun bun`; a plain global install gets its postinstall skipped by npm's allowScripts policy). No Cargo involved.
+
+```bash
+cd ts
+bun install
+bun run dev             # run the TUI straight from src/main.ts
+bun run build:exe       # single-file exe at ts/dist/kpt-tui.exe (~90 MB, embeds Bun)
+bun run test            # bun:test suite (the script pins TZ=Asia/Shanghai)
+bun run parity          # diff --test-fetch / --test-update against the Rust exe
+```
+
+Both editions implement the same contract, `docs/SPEC.md`; the places where the TS edition is mechanically different are registered in `docs/SPEC-TS-DIFF.md` (for example: behind TLS-inspecting security software the script run needs `--use-system-ca` for the GitHub API version-check fallback, and a compiled exe cannot embed that flag — there only "check for updates" degrades silently to `checkFailed`, while quota and the changelog path are unaffected).
 
 Headless self-checks (useful in CI or after changes):
 
@@ -109,7 +126,8 @@ After that, `kimi-planbar-tui` works in any terminal. Alternative: copy `rust/ta
 
 ## Tech notes
 
-- Single Rust crate in `rust/` (a TS edition with Bun + OpenTUI is planned under `ts/`): ratatui + crossterm (TUI), tokio + reqwest + serde (async/HTTP/JSON), winreg (registry), windows 0.61 (Win32 console), regex + chrono
+- Single Rust crate in `rust/`: ratatui + crossterm (TUI), tokio + reqwest + serde (async/HTTP/JSON), winreg (registry), windows 0.61 (Win32 console), regex + chrono
+- A behaviorally equivalent TS edition in `ts/`: Bun + `@opentui/core` (imperative render API, no React), registry through `reg.exe` child processes, and the Win32 console pieces (raw mode, console-ownership check, window shrink) through `bun:ffi`
 - The release exe embeds a Windows VERSIONINFO resource and the app icon via `rust/build.rs` (`winresource` build-dependency, `rust/assets/icon.ico`); FileVersion/ProductVersion derive automatically from `CARGO_PKG_VERSION`, and embedding failure only warns (machines without the Windows SDK rc.exe still compile)
 - Backend modules are ported 1:1 from the sibling tray app [kimi-planbar-tray](https://github.com/shawn-0106t/kimi-planbar-tray) (Tauri edition) with Tauri removed; the shared behavior contract lives in `docs/SPEC.md`
 - Quota logic adapted from [kimi-planbar](https://github.com/baigong-ai/kimi-planbar) (MIT) — same token sources, endpoint, and cache/retry strategy

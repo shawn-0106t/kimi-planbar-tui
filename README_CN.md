@@ -35,7 +35,7 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 ## 下载
 
-从 [Releases](../../releases) 获取最新 `kimi-planbar-tui.exe`，或从源码构建（见下文）。
+从 [Releases](../../releases) 获取最新 `kimi-planbar-tui.exe`，或从源码构建（见下文）。同一页另有 **TS 版** `kpt-tui.exe`（Bun + OpenTUI 实现，行为与界面完全一致，因内嵌 Bun 运行时体积约 90 MB；已装 Bun 的用户也可以直接 `bun run dev` 不下载 exe）。
 
 > exe 未做代码签名，首次运行 Windows SmartScreen 可能提示"已保护你的电脑"——点"更多信息 → 仍要运行"即可，这是未签名个人作品的正常提示。
 
@@ -76,12 +76,29 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 ## 从源码构建
 
+### Rust 版（默认）
+
 需要 Windows + Rust（stable，MSVC 工具链）。无需 Node.js，无需 WebView2。
 
 ```bash
 cd rust
 cargo build --release   # 单静态 exe 产出于 rust/target/release/kimi-planbar-tui.exe
 ```
+
+### TS 版（Bun + OpenTUI）
+
+需要 Windows + Bun ≥ 1.3（本机装法：`npm install -g --allow-scripts=bun bun`，普通 `npm i -g bun` 会被 npm 的 allowScripts 策略跳过 postinstall）。不需要 Cargo。
+
+```bash
+cd ts
+bun install
+bun run dev             # 直接从 src/main.ts 起 TUI
+bun run build:exe       # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行时，~90 MB）
+bun run test            # bun:test 套件（脚本会固定 TZ=Asia/Shanghai）
+bun run parity          # 与 Rust 版 exe 背靠背比对 --test-fetch / --test-update 输出
+```
+
+两版共享同一行为契约 `docs/SPEC.md`；TS 版与 Rust 版机制不等价之处统一登记在 `docs/SPEC-TS-DIFF.md`（例如：TLS 检查类安全软件环境下，TS 版脚本运行需 `--use-system-ca` 才能走通 GitHub API 兜底，而编译产物无法内嵌该开关——此时仅"检查最新版本"会静默降级为 `checkFailed`，额度与 changelog 主路径不受影响）。
 
 无头自检（适合 CI 或改动后验证）：
 
@@ -109,7 +126,8 @@ cargo install --path rust   # 安装 release exe 到 ~/.cargo/bin（Rust 用户�
 
 ## 技术说明
 
-- 单 Rust crate 位于 `rust/`（另规划 Bun + OpenTUI 的 TS 版于 `ts/`）：ratatui + crossterm（TUI），tokio + reqwest + serde（异步/HTTP/JSON），winreg（注册表），windows 0.61（Win32 控制台），regex + chrono
+- 单 Rust crate 位于 `rust/`：ratatui + crossterm（TUI），tokio + reqwest + serde（异步/HTTP/JSON），winreg（注册表），windows 0.61（Win32 控制台），regex + chrono
+- 另有一份行为等价的 TS 版位于 `ts/`：Bun + `@opentui/core`（命令式渲染，不用 React），注册表走 `reg.exe` 子进程，Win32 控制台能力（raw mode / 控制台独占判定 / 缩窗）经 `bun:ffi` 调 kernel32
 - release exe 通过 `rust/build.rs`（`winresource` build-dependency）嵌入 Windows VERSIONINFO 资源与应用图标（`rust/assets/icon.ico`）；FileVersion/ProductVersion 自动取自 `CARGO_PKG_VERSION`，嵌入失败只告警不中断构建（无 Windows SDK rc.exe 的机器也能编译）
 - 后端模块自姊妹项目托盘版 [kimi-planbar-tray](https://github.com/shawn-0106t/kimi-planbar-tray)（Tauri 版）去掉 Tauri 后 1:1 移植；共享行为契约见 `docs/SPEC.md`
 - 额度逻辑移植自 [kimi-planbar](https://github.com/baigong-ai/kimi-planbar)（MIT）——token 来源、接口与缓存/重试策略一致

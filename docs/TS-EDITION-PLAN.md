@@ -21,7 +21,7 @@
 1. **fetch + Range 的 ZlibError 坑**：GitHub Pages 对 Range 请求返回 206 且带 gzip 内容编码，Bun 解压分片流报 `ZlibError`。
    → 对策：**Range 请求一律加 `Accept-Encoding: identity`**（实测返回 206 正常）。SPEC 17.2 的 changelog 拉取必须照此实现。
 2. **api.github.com TLS 验证失败**（`unable to verify the first certificate`）：本机 ESET 做 TLS 检查并用自有根证书重签，该根在 Windows 系统 CA 库而不在 Bun 自带的 Mozilla CA 库（`api.kimi.com` 与 `moonshotai.github.io` 未被拦截，故只有 GitHub API 兜底路径受影响）。
-   → 对策：运行时加 **`--use-system-ca`**（实测通过）。注意 `BUN_USE_SYSTEM_CA` 环境变量**无效**（实测）；`bun build --compile` 产物如何固化该开关为开放问题（§7 风险表）。
+   → 对策：运行时加 **`--use-system-ca`**（实测通过）。注意 `BUN_USE_SYSTEM_CA` 环境变量**无效**（在故障可复现时测得）；`bun build --compile` 产物无法内嵌该开关，处理见 §4 M4.2。**2026-09-20 M4 复测：本机 ESET 的 TLS 拦截已不复现**，无开关的脚本运行与编译产物都能访问 `api.github.com`；复测脚本 `ts/test/system-ca-probe.ts`，结论登记在 `docs/SPEC-TS-DIFF.md` §4。
 3. **`Bun.spawn` 调 `reg.exe` + `TextDecoder('gbk')` 解码正常**（中文系统 reg 输出为 GBK；`AppsUseLightTheme` 正确读出）。自启只做写/删、不做读回校验，规避乱码面。
 4. **stdin raw mode**：管道/非 TTY 下 `process.stdin.setRawMode` 不可用属预期；OpenTUI 通过自己的 FFI 设置控制台模式，不依赖它。
 5. Bun 安装注意：`npm i -g bun` 会被 npm allowScripts 策略拦截 postinstall，需 `npm install -g --allow-scripts=bun bun`。
@@ -123,11 +123,12 @@ ts/
 
 ### M4：打包、文档与审查
 
-1. `bun build --compile ./src/main.ts --outfile kpt-tui.exe`（~90 MB，内嵌 Bun 运行时）；验证 exe 的 `--test-fetch` / `--test-update` 与 Rust 版 diff 一致
-2. 查证并解决 `--use-system-ca` 在编译 exe 上的固化方式（编译参数 / bunfig / 代码内设置；均不可行则 README 注明 ESET 类 TLS 检查软件下 GitHub API 兜底会静默降级，changelog 主路径不受影响）
-3. 文档同步：SPEC.md / SPEC_EN.md 增补 TS 版差异条文（缩窗启发式等）；AGENTS.md 仓库布局去 "planned" 并补 ts/ 说明；README × 2 增加 TS 版构建/分发说明
-4. 按用户全局规范派独立 code-reviewer subagent 审查（只给需求与代码路径，以证伪为导向）
-5. 验收：三版（rust 调试版、rust release、ts exe）`--test-fetch` 两两 diff 一致；全部文档与实现一致
+1. `bun build --compile ./src/main.ts --outfile dist/kpt-tui.exe`（实测 97,321,984 字节 ≈ 90 MB，内嵌 Bun 运行时）；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 实测 `--test-fetch` 19 行、`--test-update` 1 行与 Rust exe **逐字节一致** ✅
+2. `--use-system-ca` 在编译 exe 上的固化：**结论是"无法固化，且当前不需要"**——M4 复测本机 ESET 的 TLS 拦截已不复现（无开关的脚本与编译产物均可访问 `api.github.com`），而 `bun build --compile` 确实没有编译参数 / bunfig 键可写入该开关（两个环境变量在无可复现故障的前提下不可证）。按兜底方案在 README ×2 与 `SPEC-TS-DIFF.md` §4 注明：TLS 检查环境下编译产物的 GitHub API 兜底静默降级为 `checkFailed`，额度与 changelog 主路径不受影响。复测工具 `ts/test/system-ca-probe.ts` ✅
+3. 文档同步 ✅：`SPEC.md` / `SPEC_EN.md`（§3.1 仓库结构去 "planned"、§7.1/7.2 补 TS 构建与测试、§20 缩窗与终端恢复补 TS 条文并指向 `SPEC-TS-DIFF.md`）；`AGENTS.md`（栈/布局/构建/测试/发布 + TS 专有陷阱清单）；`README.md` / `README_CN.md`（下载与构建分 Rust / TS 两版，注明 ~90 MB、Bun 安装坑、TLS 检查环境降级）
+4. 按用户全局规范派独立 code-reviewer subagent 审查（只给需求与代码路径，以证伪为导向）⏳ 按用户决定推到 M3+M4 一次性审查
+5. 验收：三版（rust 调试版、rust release、ts exe）`--test-fetch` 两两 diff 一致；全部文档与实现一致 ⏳ 待 rust release 构建 + 真终端轮（`SPEC-TS-DIFF.md` §6 待验清单）
+
 
 ## 5. 一致性验证基线
 
@@ -148,4 +149,5 @@ ts/
 - **OpenTUI 年轻**：官方曾自称未 production-ready（opencode 生产在用）；对策 = core/tui 严格分层，渲染层可整体替换为手写 ANSI 而不动 core
 - **分发体积**：`--compile` ~90 MB，远大于 Rust 版 3–5 MB；README 注明，或改为要求用户装 Bun
 - **Bun Windows 边角**：TTY/spawn/fetch 三件套已冒烟通过；M1 先 core 后 TUI，问题早暴露
-- **`--use-system-ca` 固化未解**：兜底方案见 M4.2；最坏情况仅 GitHub API 兜底路径在 TLS 检查环境下静默降级（changelog 主路径正常），不阻塞发布
+- **`--use-system-ca` 无法固化进编译产物**：已按兜底方案收口（M4.2）——README 与 `SPEC-TS-DIFF.md` §4 注明「TLS 检查环境下仅 GitHub API 兜底路径静默降级，changelog 主路径正常」，不阻塞发布；2026-09-20 复测该拦截在本机已不复现
+
