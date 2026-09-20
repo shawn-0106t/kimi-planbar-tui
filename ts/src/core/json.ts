@@ -8,7 +8,7 @@
 // are far more permissive than Rust's parsers, and JS `trim()` strips U+FEFF
 // while Rust's `char::is_whitespace` does not. Everything here is a literal
 // transcription of those rules; goldens come from the Rust oracle (docs/
-// TS-EDITION-PLAN.md §4-M1).
+// the Rust-oracle golden mechanism now lives in SPEC §22.1).
 
 // ---------------------------------------------------------------------------
 // serde_json pretty output
@@ -206,32 +206,6 @@ export function formatDateTimeLocal(dt: RustDateTime): string {
   return `${date}T${time}${autoSiFraction(dt.nanos)}${sign}${pad2(abs / 60)}:${pad2(abs % 60)}`;
 }
 
-/** `NaiveDateTime::and_local_timezone(Local).single()` — a local wall time that
- *  does not exist or is ambiguous (DST) has no single mapping and is rejected.
- *  Round-tripping the wall fields through Date proves which side of that we are on. */
-export function localizeNaiveSingle(
-  y: number,
-  mo: number,
-  d: number,
-  h: number,
-  mi: number,
-  s: number,
-  nanos: number,
-): RustDateTime | null {
-  const probe = new Date(y, mo - 1, d, h, mi, s);
-  if (
-    probe.getFullYear() !== y ||
-    probe.getMonth() !== mo - 1 ||
-    probe.getDate() !== d ||
-    probe.getHours() !== h ||
-    probe.getMinutes() !== mi ||
-    probe.getSeconds() !== s
-  ) {
-    return null;
-  }
-  return { ms: probe.getTime(), nanos };
-}
-
 // ---------------------------------------------------------------------------
 // Rust string-parsing semantics
 // ---------------------------------------------------------------------------
@@ -405,6 +379,10 @@ const JSON_NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/;
  *  which is how a `1e400` payload reaches the `JsonException` branch. */
 export function parseJsonValue(text: string): JValue {
   let pos = 0;
+  // serde_json's default recursion limit: deeper nesting is a parse error,
+  // not a stack overflow.
+  const MAX_DEPTH = 128;
+  let depth = 0;
 
   const fail = (where: string): never => {
     throw new RustJsonError(`${where} at line 1 column ${pos + 1}`);
@@ -418,8 +396,15 @@ export function parseJsonValue(text: string): JValue {
     ws();
     const start = text[pos];
     if (start === undefined) return fail("expected value");
-    if (start === "{") return object();
-    if (start === "[") return array();
+    if (start === "{" || start === "[") {
+      depth++;
+      if (depth > MAX_DEPTH) return fail("recursion limit exceeded");
+      try {
+        return start === "{" ? object() : array();
+      } finally {
+        depth--;
+      }
+    }
     if (start === '"') return { kind: "str", value: jsonString() };
     if (start === "t") return literal("true", { kind: "bool", value: true } as JValue);
     if (start === "f") return literal("false", { kind: "bool", value: false } as JValue);

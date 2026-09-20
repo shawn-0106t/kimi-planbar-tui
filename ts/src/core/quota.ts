@@ -120,22 +120,38 @@ const fieldsOf = (groups: string[], offsetMinutes: number | null): DateTimeField
   offsetMinutes,
 });
 
-// RFC 3339 first, then the looser shapes chrono's format list accepts: a space
-// or `T` between date and time, an optional fraction, and an offset written
-// `+08:00` or `+0800` with or without a preceding space (chrono's literal space
-// matches zero whitespace). No offset at all means local wall time.
+// chrono's ladder has two very different tolerances, and the lowercase `t` is
+// the hinge. `parse_from_rfc3339` accepts `T`, `t` or a space between date and
+// time but demands a colon'd offset with no space before it; the format list
+// (`%Y-%m-%d %H:%M:%S %:z`, `%z`, `T`-literal variants) accepts an uppercase `T`
+// or a space, and then lets the literal Space match any amount of whitespace —
+// including none — plus a compact `+0800`. Measured against the Rust oracle:
+// `...t00:00:00 +08:00` and `...t00:00:00+0800` are both None, while
+// `...t00:00:00Z` parses. Same capture-group layout in both patterns.
+const RFC3339_STRICT =
+  /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(\.\d+)?([+-])(\d{2}):(\d{2})$/;
 const WITH_OFFSET =
-  /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})(\.\d+)? ?([+-])(\d{2}):?(\d{2})$/;
-const NAIVE = /^(\d{4})-(\d{2})-(\d{2})[Tt ](\d{2}):(\d{2}):(\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(\.\d+)? *([+-])(\d{2}):?(\d{2})$/;
+// chrono's naive ladder is `%Y-%m-%d %H:%M:%S` and `%Y-%m-%dT%H:%M:%S`. The
+// space in the first is an Item::Space, which matches zero or more whitespace
+// (so a glued `2030-01-0100:00:00` parses); the `T` in the second is an
+// Item::Literal and case-sensitive (a lowercase `t` is rejected here, unlike on
+// the RFC 3339 path above). Both pinned by golden `reset_time.txt`.
+const NAIVE = /^(\d{4})-(\d{2})-(\d{2})(?:T| *)(\d{2}):(\d{2}):(\d{2})$/;
 
-/** The instant as UTC epoch ms, or null when the calendar date does not exist. */
+/** The instant as UTC epoch ms, or null when the wall fields do not survive a
+ *  UTC round-trip — chrono rejects impossible dates *and* times
+ *  (`00:61:00` is not a time), and a FixedOffset is bounded to ±24 h. */
 function instantOf(fields: DateTimeFields): number | null {
   const utc = Date.UTC(fields.y, fields.mo - 1, fields.d, fields.h, fields.mi, fields.s);
   const check = new Date(utc);
   if (
     check.getUTCFullYear() !== fields.y ||
     check.getUTCMonth() !== fields.mo - 1 ||
-    check.getUTCDate() !== fields.d
+    check.getUTCDate() !== fields.d ||
+    check.getUTCHours() !== fields.h ||
+    check.getUTCMinutes() !== fields.mi ||
+    check.getUTCSeconds() !== fields.s
   ) {
     return null;
   }
@@ -145,14 +161,19 @@ function instantOf(fields: DateTimeFields): number | null {
 /** The ladder from `parse_reset_time`: an offset-bearing form first (its offset
  *  fixes the instant), then a naive form interpreted as local wall time. */
 export function parseResetTime(raw: string): RustDateTime | null {
-  // `Z` is just a zero offset for the pattern above.
+  // `Z` is just a zero offset for the patterns above.
   const normalized = /[Zz]$/.test(raw) ? `${raw.slice(0, -1)}+00:00` : raw;
-  const withOffset = WITH_OFFSET.exec(normalized) as unknown as string[] | null;
+  const withOffset = (RFC3339_STRICT.exec(normalized) ??
+    WITH_OFFSET.exec(normalized)) as unknown as string[] | null;
   if (withOffset) {
-    const minutes = Number(withOffset[9]) * 60 + Number(withOffset[10]);
-    const fields = fieldsOf(withOffset, withOffset[8] === "-" ? -minutes : minutes);
-    const ms = instantOf(fields);
-    if (ms !== null) return { ms, nanos: fields.nanos };
+    // chrono's %z rejects a minute component >= 60 ("+0899" is not an offset).
+    const offMinuteComponent = Number(withOffset[10]);
+    const minutes = Number(withOffset[9]) * 60 + offMinuteComponent;
+    if (offMinuteComponent < 60 && minutes < 24 * 60) {
+      const fields = fieldsOf(withOffset, withOffset[8] === "-" ? -minutes : minutes);
+      const ms = instantOf(fields);
+      if (ms !== null) return { ms, nanos: fields.nanos };
+    }
   }
   const naive = NAIVE.exec(raw) as unknown as string[] | null;
   if (naive) {
@@ -263,7 +284,12 @@ export async function fetchQuota(deps: FetchDeps = {}): Promise<QuotaResult> {
   } catch (err) {
     return failed(isTimeout(err) ? "TaskCanceledException" : "HttpRequestException");
   }
-  if (!response.ok) return failed("HttpRequestException");
+  if (!response.ok) {
+    // Drain the body so the keep-alive connection returns to the pool; the
+    // fetch itself already failed semantically, so any drain error is moot.
+    void response.arrayBuffer().catch(() => {});
+    return failed("HttpRequestException");
+  }
 
   // reqwest surfaces a body-read failure inside .json(); the same holds here, so
   // a timeout after the headers arrived is a JsonException, not a cancellation.

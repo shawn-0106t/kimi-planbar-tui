@@ -8,6 +8,9 @@ import type { AppState } from "./state.ts";
 
 const FIRST_DELAY_MS = 2_000;
 const FAILURE_RETRY_MS = 30_000;
+/** setTimeout takes a signed 32-bit delay; a huge refreshMinutes must mean
+ *  "effectively never fires", not an overflow to a 1 ms hot loop. */
+const TIMEOUT_MAX_MS = 2_147_483_647;
 
 export interface PollingDeps {
   state: AppState;
@@ -40,7 +43,7 @@ export function createPolling(deps: PollingDeps): Polling {
   let running = false;
 
   const periodMs = (): number =>
-    Math.max(1, deps.state.settings.refreshMinutes) * 60_000;
+    Math.min(TIMEOUT_MAX_MS, Math.max(1, deps.state.settings.refreshMinutes) * 60_000);
 
   const arm = (ms: number): void => {
     if (cancel !== null) cancel();

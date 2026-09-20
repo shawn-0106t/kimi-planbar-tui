@@ -100,7 +100,7 @@ async function spawnKimiVersion(): Promise<{ code: number | null; output: string
 
 /** Changelog first: the Range header keeps the body at 4 KiB, and
  *  `Accept-Encoding: identity` is required because Bun cannot inflate a gzipped
- *  206 partial response (docs/TS-EDITION-PLAN.md §2.1). */
+ *  206 partial response (SPEC §22.4). */
 export async function fetchLatestFromChangelog(doFetch: typeof fetch): Promise<string | null> {
   try {
     const response = await doFetch(CHANGELOG_URL, {
