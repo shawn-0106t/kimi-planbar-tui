@@ -127,7 +127,8 @@ ts/
 2. `--use-system-ca` 在编译 exe 上的固化：**结论是"无法固化，且当前不需要"**——M4 复测本机 ESET 的 TLS 拦截已不复现（无开关的脚本与编译产物均可访问 `api.github.com`），而 `bun build --compile` 确实没有编译参数 / bunfig 键可写入该开关（两个环境变量在无可复现故障的前提下不可证）。按兜底方案在 README ×2 与 `SPEC-TS-DIFF.md` §4 注明：TLS 检查环境下编译产物的 GitHub API 兜底静默降级为 `checkFailed`，额度与 changelog 主路径不受影响。复测工具 `ts/test/system-ca-probe.ts` ✅
 3. 文档同步 ✅：`SPEC.md` / `SPEC_EN.md`（§3.1 仓库结构去 "planned"、§7.1/7.2 补 TS 构建与测试、§20 缩窗与终端恢复补 TS 条文并指向 `SPEC-TS-DIFF.md`）；`AGENTS.md`（栈/布局/构建/测试/发布 + TS 专有陷阱清单）；`README.md` / `README_CN.md`（下载与构建分 Rust / TS 两版，注明 ~90 MB、Bun 安装坑、TLS 检查环境降级）
 4. 按用户全局规范派独立 code-reviewer subagent 审查（只给需求与代码路径，以证伪为导向）⏳ 按用户决定推到 M3+M4 一次性审查
-5. 验收：三版（rust 调试版、rust release、ts exe）`--test-fetch` 两两 diff 一致；全部文档与实现一致 ⏳ 待 rust release 构建 + 真终端轮（`SPEC-TS-DIFF.md` §6 待验清单）
+5. 验收：与本机 Rust 参照 exe（基线 = `rust/target/debug/kimi-planbar-tui.exe`）+ 编译后的 ts exe 双向 diff 一致 ⏳ 待真终端轮（`SPEC-TS-DIFF.md` §6 待验清单）。**不要为此新建 Rust 构建**：TS 任务的验证范围止于 `ts/`，"Rust 的 release 与 debug 是否等价"属 Rust 版自己的验收（2026-09-20 用户指示；`KPT_RUST_EXE=<path>` 可临时指向别的 exe）
+
 
 
 ## 5. 一致性验证基线

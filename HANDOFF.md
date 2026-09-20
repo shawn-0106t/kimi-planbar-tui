@@ -6,9 +6,10 @@
 ## 1. 现在在哪
 
 - **路线**：Bun + OpenTUI（`docs/TS-EDITION-PLAN.md` §1）。`docs/TS-EDITION-PLAN-NODEJS.md` + 整棵 `ts-nodejs/` 是**另一会话在跑的未采纳 Node 路线**，勿动、勿 `git add -A`。
-- **已完成**：M1 core（已过双视角 review，见 §5）；M2 dashboard 渲染层（`02f3a99`）；**M3 三视图 + 全键盘路由 + 缩窗代码**（本次 commit，本地未 push）。
-- **M3 的边界**：只有自动化证据（`bun test` 256 绿 + parity 逐字节）。**真终端那一轮没跑**——待验清单在 `docs/SPEC-TS-DIFF.md` §6 末尾，探针 = `ts/test/console-probe.ts`（用法见文件头注释）。这三项里包含对 M2 既有结论的复测（`console.ts` 输入句柄修正）。
-- **未完成**：M4（打包 + `--use-system-ca` 固化 + 文档同步 + 独立 review）。步骤见 `docs/TS-EDITION-PLAN.md` §4。
+- **已完成**（全部本地 commit、未 push）：M1 core（已过双视角 review，见 §5）；M2 dashboard 渲染层（`02f3a99`）；M3 三视图 + 全键盘路由 + 缩窗（`f62d0f3` 代码 / `7468d56` 文档）；M4 打包 + 文档同步（`76cfceb`）。自动化证据：`bun run test` 256 绿、`bun run parity` 逐字节一致、`ts/dist/kpt-tui.exe` 与 Rust exe 也逐字节一致。
+- **未完成**：① **真终端验收一轮**（待验清单在 `docs/SPEC-TS-DIFF.md` §6 末尾，工具 `ts/test/console-probe.ts`，`--shrink` 才会真的改窗口）；② `docs/REVIEW-M1.md` 的 5 Major + 7 Minor **仍未修**；③ 覆盖 M3+M4（+ 若修的 M1 清单）的**一次独立 code review**。
+- **M4 收口时的两处结论**：`--use-system-ca` 无法固化进编译产物、且本机 ESET TLS 拦截已不复现（兜底 = README 注明"仅 GitHub API 兜底静默降级为 checkFailed"，探针 `ts/test/system-ca-probe.ts`）；M2 的 `console.ts` 把 raw mode 打在了输出句柄上（`0xfffffff5` = `(HANDLE)-11`），M3 已改为 `(HANDLE)-10`，**该修正待真终端复测**——M2 当时"回显消失"的归因可能不成立。
+
 
 ## 2. 验收命令（M3 收口时全绿，开工先复现基线）
 
@@ -16,7 +17,10 @@
 cd ts
 bun run test     # 256 pass / 0 fail；TZ 由脚本固定，直接 `bun test` 会因时区炸掉 golden
 bun run parity   # 与 rust/target/debug/kimi-planbar-tui.exe 背靠背，除 fetchedAt 值外逐字节一致
+bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe   # 比对编译产物
 ```
+
+**parity 的 Rust 参照物固定是 debug 那个 exe；TS 任务里不要 `cargo build`**（含 `--release`）——那是 Rust 版自己的验收范围，用户 2026-09-20 明确划的界。临时换 exe 用 `KPT_RUST_EXE=<path>`。
 
 **真终端启动务必定向到 OpenTUI 版**：`cd ts && bun run dev`（= `bun ... src/main.ts`）。`ts-nodejs/` 的 `node ... src/main.ts` 会渲染**同名** "Kimi Planbar TUI" 窗口——自动化截图/焦点在两会话窗口间极易混。人工验收前先确认进程是 bun 且 cwd 是 `ts/`。
 本机 Kimi token 时效很短（数十分钟）。token 有效时 `--test-fetch`/parity 走真实成功路径、证据最强；过期时两版都退 `no-token` 分支。要复现成功路径先 `kimi login` 再跑。
@@ -31,19 +35,22 @@ bun run parity   # 与 rust/target/debug/kimi-planbar-tui.exe 背靠背，除 fe
 | 渲染层落点与模块边界（line/dashboard/settingsView/skillsView/renderer/app/console/shrink 八文件） | `ts/src/tui/`，注释引用 SPEC 章节 |
 | M3 键盘路由与 Rust `handle_key` 的 1:1 对照测试 | `ts/test/appRouting.test.ts` |
 | golden 再生方式（临时 cargo 工程复用真实 `rust/src/quota.rs`） | `ts/test/parity/make-oracle.ts` 头部注释 |
-| M4 步骤 | `docs/TS-EDITION-PLAN.md` §4 |
+| M4 收尾步骤与已实测结论（打包、`--use-system-ca`、文档同步） | `docs/TS-EDITION-PLAN.md` §4 M4 |
+| M1 审查清单（5 Major + 7 Minor，修复原则） | `docs/REVIEW-M1.md` |
+| `--use-system-ca` / TLS 拦截复测结论 | `docs/SPEC-TS-DIFF.md` §4 + `ts/test/system-ca-probe.ts` |
 
-## 4. 下一步开工前三步
+## 4. 下一步（按此顺序，或按你的重排）
 
-1. **先复现基线**（§2 两条命令），确认 `ts/` 环境未变。
-2. **补真终端轮**（`SPEC-TS-DIFF.md` §6 末尾四项 + SPEC 11/12/13/21 三视图走查）：这轮同时决定 `console.ts` 的 raw mode 到底谁在做、以及 conhost 缩窗通道 (b) 的手工打包是否被 kernel32 接受。用户倾向把它与 M4 的完整人工对照合成一轮，顺序由你定。
-3. **M4 打包**：`bun build --compile`（脚本 `bun run build:exe`）；`--use-system-ca` 在编译产物上的固化方式是 M4 唯一开放技术问题（`SPEC-TS-DIFF.md` §4）。
+1. **先复现基线**（§2 三条命令），确认 `ts/` 环境未变。
+2. **M1 清单修复**（待你定范围，见 §5）：只动 `ts/src/core/*` 与 M1 测试，改完 `bun run test` + `bun run parity` 必须仍绿。
+3. **真终端一轮**（`SPEC-TS-DIFF.md` §6 末尾四项 + SPEC 11/12/13/21 三视图走查 + `bun run dev` 与编译产物各跑一次）：这轮同时决定 `console.ts` 的 raw mode 到底谁在做、以及 conhost 缩窗通道 (b) 的手工打包是否被 kernel32 接受。
+4. **一次独立 code-reviewer 审查**，范围 = M3 + M4（+ 若做了第 2 步则含 M1 修复）。
 
 ## 5. 挂起事项（等你拍板，别默认执行）
 
-- **M1 的 5 个 Major + 7 个 Minor**（`docs/REVIEW-M1.md`，无 Blocker）：从 M2 拖到 M3、现在仍待你确认是否修。Major A（`refreshMinutes` 过大致 `setTimeout` 溢出 → 带 token 热循环）与 B（skills 整文件读入，违背 4 KiB 上限）建议优先。修只动 `ts/src/core/*` 与 M1 测试。
-- **并行 Node 会话**：`ts-nodejs/` 由另一会话在跑（未采纳路线），本会话全程未触碰。是否收敛是你的决定。
-- **`--use-system-ca` 与分发体积**（~90 MB）都归 M4 记录到 README。
+- **M1 的 5 个 Major + 7 个 Minor**（`docs/REVIEW-M1.md`，无 Blocker）：从 M2 拖到 M3、再拖到 M4，**至今未修，待你定范围**（只修 Major / Major+Minor 全修 / 先不修直接进 review）。Major A（`refreshMinutes` 过大致 `setTimeout` 溢出 → 带 token 热循环）与 B（skills 整文件读入，违背 4 KiB 上限）建议优先。修只动 `ts/src/core/*` 与 M1 测试。
+- **并行 Node 会话**：`ts-nodejs/` 由另一会话在跑（未采纳路线），本会话全程未触碰；它还会往仓库根丢截图脚本与 png（`launch-tui.ps1`、`shot-*.png` 等），别误提交。是否收敛是你的决定。
+- ~~`--use-system-ca` 与分发体积~~：M4 已收口——前者结为"无法固化 + 当前不需要"（`SPEC-TS-DIFF.md` §4），后者已写进两个 README 与发布流程。
 
 ## 6. 工作树边界（改 ts/ 时务必遵守）
 
