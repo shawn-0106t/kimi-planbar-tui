@@ -1,47 +1,49 @@
 # HANDOFF — TS 版接力点（一次性文件）
 
-> 用途：跨会话交接。**M2 开工后并入 `docs/TS-EDITION-PLAN.md` §4 并删除本文件**。
-> 生成：2026-09-19 深夜。技术结论一律不在这里重述，只给指针，避免出现第二个事实源。
+> 用途：跨会话交接。**M4 收尾后并入 `docs/TS-EDITION-PLAN.md` 并删除本文件**。
+> 更新：2026-09-20（M2 完成后重写）。技术结论一律不在这里重述，只给指针，避免出现第二个事实源。
 
 ## 1. 现在在哪
 
-- **路线已定：Bun + OpenTUI**（`docs/TS-EDITION-PLAN.md` §1 已记二次确认）。
-  `docs/TS-EDITION-PLAN-NODEJS.md` 是同日起草的**未采纳备选存档**，不要当生效方案读。
-- **已完成**：S0 OpenTUI 能力冒烟（GO）→ M1 core 十模块 + 177 个 `bun:test` 用例 + 无头自检 `--test-fetch` / `--test-update` + 与 Rust 版跨版本字节级 parity。
-- **未完成**：M1 审查发现的 5 个 Major + 7 个 Minor **尚未修**（用户决定：等 M2 完整构建后再修，修复原则「能对齐 Rust 的全对齐 Rust」）。清单见 `docs/REVIEW-M1.md`。
+- **路线**：Bun + OpenTUI（`docs/TS-EDITION-PLAN.md` §1）。`docs/TS-EDITION-PLAN-NODEJS.md` + 整棵 `ts-nodejs/` 是**另一会话在跑的未采纳 Node 路线**，勿动、勿 `git add -A`。
+- **已完成**：M1 core（已 commit + 已过双视角 code review，见 §5）；**M2 dashboard 渲染层**（2026-09-20 commit `02f3a99`，本地未 push）。
+- **未完成**：M3（settings/skills 视图 + 全键盘路由 + 启动缩窗 + 终端恢复补全）、M4（打包 + 文档同步 + 独立 review）。步骤见 `docs/TS-EDITION-PLAN.md` §4。
 
-## 2. 三条验收命令（当前全绿，明天开工先跑一遍确认环境没变）
+## 2. 验收命令（M2 收口时全绿，开工先复现基线）
 
 ```bash
 cd ts
-bun run test        # 177 pass / 0 fail；TZ=Asia/Shanghai 由脚本固定（golden 内嵌本地时区时间戳）
-bun run parity      # 与 rust/target/debug/kimi-planbar-tui.exe 背靠背，除 fetchedAt 的值外逐字节一致
-bun run selfcheck:fetch
+bun run test     # 194 pass / 0 fail（含 dashboard 行快照 + OpenTUI 适配器集成）；TZ 由脚本固定
+bun run parity   # 与 rust/target/debug/kimi-planbar-tui.exe 背靠背，除 fetchedAt 值外逐字节一致
 ```
 
-今晚两种分支都验过：**成功路径**（有真实 token 时，`--test-fetch` 输出 19 行，含 `percent: 3.0` 这类浮点文本与 `resetAt` 时间戳）与 **`no-token` 分支**（token 一失效就变 7 行）。行数以明天实际输出为准，判定只看"两版是否一致"。
+**真终端启动务必定向到 OpenTUI 版**：`cd ts && bun run dev`（= `bun ... src/main.ts`）。`ts-nodejs/` 的 `node ... src/main.ts` 会渲染**同名** "Kimi Planbar TUI" 窗口——自动化截图/焦点在两会话窗口间极易混。人工验收前先确认进程是 bun 且 cwd 是 `ts/`。
+本机 Kimi token 时效很短（数十分钟）。token 有效时 `--test-fetch`/parity 走真实成功路径、证据最强；过期时两版都退 `no-token` 分支。要复现成功路径先 `kimi login` 再跑。
 
 ## 3. 指针（结论都在这里，不要在此文件复核）
 
 | 内容 | 位置 |
 |---|---|
-| S0 实测：格宽/per-span bg/硬裁剪/键事件/reg.exe 引号/kimi spawn，**以及 M2 必须绕开的 4 条 API 陷阱**（就地改 `content` 不重绘、`position:absolute` 被忽略、底纹不铺满需按行补宽、测试渲染器 `resize()` 崩） | `docs/TS-EDITION-PLAN.md` §2.6 |
-| TS↔Rust 实现差异条文：`fetchedAt` 是唯一字节豁免字段、严格 `from_str` 等价表、`i64` 用 `bigint`、`Number::as_i64` 需整数 token 形态、`process.execPath` 与 `portable.dat`/自启的关系、`Accept-Encoding: identity`、`--use-system-ca`、九槽调色板与 `white` 的 SGR 偏差 | `docs/SPEC-TS-DIFF.md` |
-| golden 再生方式（临时 cargo 工程复用真实 `rust/src/quota.rs` 解析代码） | `ts/test/parity/make-oracle.ts` 头部注释 |
-| 里程碑 M1–M4 步骤与状态 | `docs/TS-EDITION-PLAN.md` §4 |
+| M2 渲染层三条实现差异：OpenTUI 适配器（每行 Text 销毁重建、window_bg 逐 span 合成）、**Bun/Windows `setRawMode` 是空操作 → conhost 回显按键，须 `bun:ffi SetConsoleMode` 进 raw 且每次输入/重绘前重申**、键事件挂 `renderer.keyInput` | `docs/SPEC-TS-DIFF.md` §5 |
+| S0 四条 API 陷阱（就地改 `content` 不重绘、`position:absolute` 被忽略、底纹不铺满需按行补宽、测试渲染器 `resize()` 崩） | `docs/TS-EDITION-PLAN.md` §2.6 |
+| 渲染层落点与模块边界（line/dashboard/renderer/app/console 五文件） | `ts/src/tui/`，注释引用 SPEC 章节 |
+| golden 再生方式（临时 cargo 工程复用真实 `rust/src/quota.rs`） | `ts/test/parity/make-oracle.ts` 头部注释 |
+| M3/M4 步骤 | `docs/TS-EDITION-PLAN.md` §4 |
 
-## 4. 明天开工前三步
+## 4. 下一步开工前三步
 
-1. **M1 审查已完成**（两个视角各一轮，审查者自行重跑过验收）：结论无 Blocker，5 Major + 7 Minor 记在 `docs/REVIEW-M1.md`，其中 Major A（`refreshMinutes` 过大致 `setTimeout` 溢出 → 带 token 热循环）与 B（skills 整文件读入，违背 4 KiB 上限）建议优先。按约定**等 M2 完整构建后**再修，修的时候能对齐 Rust 的全对齐 Rust，对不齐的补进 `docs/SPEC-TS-DIFF.md`。
-2. `cd ts && bun add @opentui/core`（0.5.11 已验证 win32-x64 可装可跑）→ 若并行会话已做过则跳过；`bun.lock` 建议提交。
-3. 按 §2.6 的 4 条陷阱先定 `ts/src/tui/line.ts`（`Line[]` 纯模型）与 `ts/src/tui/renderer.ts`（OpenTUI 适配器 / 兜底 ANSI painter）的边界，再写 dashboard 纯视图 + 行快照测试，**最后**才接真渲染器到 Windows Terminal 里人工对照 SPEC 11/12 双主题。
+1. **先复现基线**（§2 两条命令），确认 `ts/` 环境未变。
+2. **M3 渲染层续建**：`ts/src/tui/` 加 settings/skills 视图（对照 `rust/src/ui/settings_view.rs`、`skills_view.rs`）+ 全键盘路由（SPEC 12.7）。注意 §2.6：真终端会投 `keyrelease`，路由器须忽略；`R` = `name:"r"+shift:true`，复刻 Rust 只认小写须自行判 shift。终端恢复（SPEC 20，最高优先级）：`q`/Ctrl+C/`uncaughtException`/`unhandledRejection` 全部走 `destroyRenderer()`（已含 `renderer.destroy()` + console.ts 的 `restore()`）。
+3. **启动缩窗 72×13（TS 差异点，SPEC 20）**：无 Win32 binding，用终端环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` 存在=共享终端不缩；缺失=双击新窗发 `ESC[8;13;72t`）。实测后回写 `docs/SPEC-TS-DIFF.md` §6。
 
-## 5. 并行工作与工作树边界
+## 5. 挂起事项（等你拍板，别默认执行）
 
-- 2026-09-19 深夜，同一工作树里另有**并行推进的未提交改动**（用户另一窗口）：`ts/src/tui/{line,renderer,dashboard,app}.ts` + `ts/test/{dashboard,renderer}.test.ts` + `ts/bun.lock` + `ts/package.json` / `ts/src/main.ts` 的修改（M2 雏形），以及整棵 `ts-nodejs/`（Node.js 备选路线的平行实现）。本会话（M1）**只提交到 `ts/src/core/*`、`ts/src/main.ts`、`ts/test/*`（M1 那批）与 docs**，没有碰上述任何文件。
-- 修 M1 清单时同理：只动 `ts/src/core/*` 与 M1 的测试文件，逐项 `git add <具体路径>`，不要用 `git add -A`，以免把并行 WIP 一起提交。
+- **M1 的 5 个 Major + 7 个 Minor**（`docs/REVIEW-M1.md`，无 Blocker）：你之前决定推迟到 M2 之后修，修复原则「能对齐 Rust 的全对齐，对不齐的补写 SPEC-TS-DIFF」。Major A（`refreshMinutes` 过大致 `setTimeout` 溢出 → 带 token 热循环）与 B（skills 整文件读入，违背 4 KiB 上限）建议优先。**现 M2 已完成——待你确认是接着修 Major 还是先推 M3。**
+- **统一人工验收**：你倾向把双主题 + 交互走查合并到"全部构建完成后"一轮做（因两会话窗口易混）。M2 这轮只做了 OpenTUI 渲染层定向确认（回显修复前后对比即证据）。M4 前需补一轮完整人工对照 SPEC 11/12/13/21。
+- **并行 Node 会话**：`ts-nodejs/` 由另一会话在跑（未采纳路线）。是否停掉/收敛是你的决定——本会话全程未触碰。
 
-## 6. 待你决定的杂项
+## 6. 工作树边界（改 ts/ 时务必遵守）
 
-- `docs/TS-EDITION-PLAN-NODEJS.md` 头部现在写着「取代同文件上一版的 OpenTUI 路线」，与已定路线冲突。建议加一行「未采纳，仅存档」的更正——按 AGENTS.md 规矩，改既有文件前先问你，**未得许可前谁都不要动它**。
-- 本机 Kimi token 时效很短（今晚半小时内从有效变回过期）。token 有效时 `--test-fetch` 走**真实成功路径**、证据强度最高；过期时两版都只输出 `no-token` 分支。想复现成功路径 diff，先 `kimi login`（或跑一次 `kimi`）再 `bun run parity`。
+- 只 `git add <具体路径>`，**绝不 `git add -A` / `git add .`**，以免把 `ts-nodejs/`、`docs/TS-EDITION-PLAN-NODEJS.md` 等并行/存档 WIP 一起提交。
+- 修 M1 清单时只动 `ts/src/core/*` 与 M1 测试文件；M3 只在 `ts/src/tui/` 增量。
+- `docs/TS-EDITION-PLAN-NODEJS.md` 头部写着「取代 OpenTUI 路线」，与已定方案冲突，但按 AGENTS.md 规矩改既有文件前先问——**未得许可谁都不要动它**。
