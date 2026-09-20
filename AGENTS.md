@@ -6,13 +6,15 @@ Guidance for AI coding agents working in this repository. Read this first; it as
 
 Kimi Planbar TUI is a **terminal-resident dashboard** (no tray, no windows, no animations) that shows Kimi Code plan quota — 5-hour window + weekly usage with reset countdowns, Extra Usage booster wallet, Kimi Code CLI version check, and a read-only skills list — inside a terminal. It reads the local Kimi Code CLI OAuth token (read-only) and calls `GET https://api.kimi.com/coding/v1/usages`.
 
-This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition; `ts/` holds the TS edition (Bun + OpenTUI), sharing the same behavior contract. Both editions are implemented; where they are not mechanically equivalent, `docs/SPEC-TS-DIFF.md` is the register (filed by SPEC chapter number).
+This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition; the TS edition has two parallel implementations — `ts/` (Bun + OpenTUI) and `ts-nodejs/` (Node 24 + handwritten ANSI) — all three sharing the same behavior contract. Where a TS edition is not mechanically equivalent to Rust, the register is **SPEC chapter 22** (`docs/SPEC.md` / `docs/SPEC_EN.md`), filed by SPEC chapter number.
 
-Current version: **0.1.0** (kept in `rust/Cargo.toml` and, independently, `ts/package.json`; versioning is **independent** of the sibling tray app `kimi-planbar-tray`).
+Current version: **0.1.0** (kept in `rust/Cargo.toml` and, independently, `ts/package.json` and `ts-nodejs/package.json`; versioning is **independent** of the sibling tray app `kimi-planbar-tray`).
 
 Stack, Rust edition: Rust stable (MSVC) + **ratatui** (TUI framework) + **crossterm** (terminal backend/events) + tokio + reqwest + serde + winreg + windows 0.61 (Win32 console APIs, for minimal-window-on-launch) + regex + chrono. No Tauri, no WebView. Distribution is a single static release exe (~3–5 MB) via `cargo build --release` in `rust/`.
 
 Stack, TS edition: **Bun** ≥ 1.3 (runtime + bundler + `bun:test`) + **@opentui/core** (imperative render API, no React) + `bun:ffi` (kernel32 console mode / console ownership / window resize) + `node:fs`/`node:path` + `reg.exe` via spawn for the registry. Distribution is a single-file exe (~90 MB, embeds the Bun runtime) via `bun run build:exe` in `ts/`, or `bun run dev` for users who already have Bun.
+
+Stack, TS edition (Node): **Node.js ≥ 24.6** (native type stripping; no build step for dev) + a handwritten ANSI render layer (no TUI library) + `node:test` + `node:child_process` (`reg.exe` for the registry, `kimi --version` for the update check). Distribution is a SEA single-file exe (~88.7 MB, embeds the Node runtime, `--use-system-ca` baked via `execArgv`) via `npm run build:exe` in `ts-nodejs/`, or `npm run dev` for users who already have Node.
 
 This repo is a standalone derivative of the tray app (`kimi-planbar-tray`): the backend modules were ported 1:1 from `rust/src-tauri/src/` with the Tauri dependencies removed. **The behavior contract is `docs/SPEC.md`** (Chinese; English translation at `docs/SPEC_EN.md`, identical chapter numbering) — it keeps the same chapter numbering as the tray edition's SPEC, with chapters 10 (window spec), 14 (tray behavior), and 15 (animations) explicitly marked not applicable. Consult it before changing behavior; any behavior change must update the corresponding SPEC chapter.
 
@@ -38,17 +40,23 @@ Data contract shared with the tray edition: same credential chain, same `setting
 │       ├── app.rs              # TUI bootstrap + event loop (tokio::select!; new code)
 │       ├── format.rs           # FormatReset / FmtYuan / percent display helpers (ported from the tray edition's src/common.ts)
 │       └── ui/                 # ratatui view layer (new code): dashboard.rs, settings_view.rs, skills_view.rs
-├── ts/                         # TS edition: Bun + OpenTUI, same SPEC contract, independent version
+├── ts/                         # TS edition (Bun): Bun + OpenTUI, same SPEC contract, independent version
 │   ├── package.json            # scripts: dev / test / parity / selfcheck:* / build:exe; name kimi-planbar-tui-ts
 │   ├── src/core/               # 10 UI-agnostic modules mirroring rust/src/*.rs (no @opentui imports allowed)
 │   ├── src/tui/                # OpenTUI render layer: line, dashboard, settingsView, skillsView, renderer, app, console, shrink
 │   ├── src/main.ts             # entry; --test-fetch / --test-update before anything else
 │   └── test/                   # bun:test suites + test/parity/ (Rust oracle goldens, diff.ts) + console/system-ca probes
+├── ts-nodejs/                  # TS edition (Node): Node 24 + handwritten ANSI, same SPEC contract, independent version
+│   ├── package.json            # scripts: dev / test / typecheck / parity / selfcheck:* / build:exe; name kimi-planbar-tui-ts-nodejs
+│   ├── src/core/               # the same 10 modules, ported from ts/src/core (only 3 Bun.* call sites de-Bun'd)
+│   ├── src/tui/                # handwritten ANSI layer: ansi, wcwidth, screen, terminal + views (dashboard, settingsView, skillsView, app)
+│   ├── src/main.ts             # entry; --test-fetch / --test-update before anything else
+│   ├── scripts/                # run-tests.mjs (TZ pin), run-parity.mjs, build-sea.mjs, verify/ (WT window probing helpers)
+│   └── test/                   # node:test suites via test/bun-shim.ts + golden/ + parity/ (same oracle set as ts/)
 ├── docs/
-│   ├── SPEC.md                 # authoritative behavior contract (Chinese), shared by both editions
-│   ├── SPEC_EN.md              # English translation, identical chapter numbering
-│   ├── SPEC-TS-DIFF.md         # where the TS edition is NOT equivalent to Rust, filed by SPEC chapter number
-│   └── TS-EDITION-PLAN.md      # TS edition (Bun + OpenTUI) implementation plan: decisions, smoke-test findings, M1-M4 steps
+│   ├── SPEC.md                 # authoritative behavior contract (Chinese), shared by all three editions;
+│   │                           # chapter 22 registers where each TS edition is NOT equivalent to Rust
+│   └── SPEC_EN.md              # English translation, identical chapter numbering
 ├── AGENTS.md / README.md / README_CN.md
 ├── LICENSE                     # MIT © Shawn Qi
 └── NOTICE                      # portions © baigong-ai / kimi-planbar
@@ -73,6 +81,15 @@ cd ts
 bun install
 bun run dev             # run the TUI from src/main.ts (passes --use-system-ca, see traps)
 bun run build:exe       # single-file exe at ts/dist/kpt-tui.exe (~90 MB; dist is gitignored)
+```
+
+TS edition (Node) — prerequisites: Windows + Node.js ≥ 24.6 (native type stripping runs the .ts sources directly; `--use-system-ca` exists since 24.6). No Bun, no Cargo.
+
+```bash
+cd ts-nodejs
+npm install
+npm run dev             # run the TUI from src/main.ts
+npm run build:exe       # SEA single-file exe at ts-nodejs/dist/kpt-tui-node.exe (~88.7 MB; dist is gitignored)
 ```
 
 Run the exe inside a terminal: **Windows Terminal** or the **VS Code integrated terminal** are the baseline targets. Legacy conhost works but needs `chcp 65001` first (UTF-8 code page), or box-drawing glyphs and CJK text render garbled.
@@ -102,17 +119,28 @@ bun test/console-probe.ts [--shrink]      # SPEC 20 terminal checks (run in a RE
 
 `bun test` without the script's TZ pin breaks the Rust-oracle goldens (they are `DateTime<Local>` stamps). The compiled exe is what `--use-system-ca` cannot be baked into — see the traps below.
 
+TS edition (Node) — same two self-checks, same parity harness, plus a type check:
+
+```bash
+cd ts-nodejs
+npm test                                    # node:test via test/bun-shim.ts; scripts/run-tests.mjs pins TZ=Asia/Shanghai
+npm run typecheck                           # tsc --noEmit must stay at 0 errors
+npm run parity                              # diff both self-checks against rust/target/debug exe
+node test/parity/diff.ts --ts-exe dist/kpt-tui-node.exe   # same diff against the SEA build
+npm run selfcheck:fetch                     # one self-check, like the Rust exe
+```
+
 There is **no `--test-ui`** (no windows to construct) and **no single-instance check** — the self-checks work while other instances are running simply because nothing is locked. To verify behavioral parity with the tray edition, run both apps' `--test-fetch` back to back on the same machine and diff the JSON field by field.
 
-After changes: `cargo build` + `cargo test` (in `rust/`), then run `--test-fetch` and `--test-update` against the built exe, and eyeball the TUI in Windows Terminal under both themes. For `ts/`, `bun run test` + `bun run parity` must stay green, and the SPEC 20 items in `docs/SPEC-TS-DIFF.md` §6 need the real-terminal round (the probe above is the tool for it).
+After changes: `cargo build` + `cargo test` (in `rust/`), then run `--test-fetch` and `--test-update` against the built exe, and eyeball the TUI in Windows Terminal under both themes. For `ts/`, `bun run test` + `bun run parity` must stay green, and the SPEC 20 items in SPEC §22.6 need the real-terminal round (the probe above is the tool for it). For `ts-nodejs/`, `npm test` + `npm run typecheck` + `npm run parity` must stay green.
 
 
 ## Release process
 
-1. Rust version bump: `rust/Cargo.toml` is the only place for the Rust exe — its VERSIONINFO FileVersion/ProductVersion derive from `CARGO_PKG_VERSION` automatically via `build.rs` (winresource). The TS edition bumps independently in `ts/package.json`.
-2. `cd rust && cargo build --release`; `cd ts && bun install && bun run test && bun run build:exe`.
-3. Distribute both exes via GitHub Releases (manual upload). **Do not commit binaries**; `rust/target/`, `ts/dist/` and `*.exe` are gitignored. Say in the release notes that the TS build is ~90 MB because it embeds the Bun runtime.
-4. Both apps are unsigned — SmartScreen warnings are expected and documented in the README.
+1. Rust version bump: `rust/Cargo.toml` is the only place for the Rust exe — its VERSIONINFO FileVersion/ProductVersion derive from `CARGO_PKG_VERSION` automatically via `build.rs` (winresource). The TS editions bump independently in `ts/package.json` / `ts-nodejs/package.json`.
+2. `cd rust && cargo build --release`; `cd ts && bun install && bun run test && bun run build:exe`; `cd ts-nodejs && npm install && npm test && npm run typecheck && npm run build:exe`.
+3. Distribute all three exes via GitHub Releases (manual upload). **Do not commit binaries**; `rust/target/`, `ts/dist/`, `ts-nodejs/dist/` and `*.exe` are gitignored. Say in the release notes that the TS builds are ~90 MB (Bun) / ~88.7 MB (Node SEA) because they embed their runtimes.
+4. All apps are unsigned — SmartScreen warnings are expected and documented in the README. (postject prints a "signature seems corrupted" warning while injecting the SEA blob: expected — injection invalidates the stock node.exe Authenticode signature and the result ships unsigned.)
 
 ## Code style and conventions
 
@@ -136,15 +164,24 @@ After changes: `cargo build` + `cargo test` (in `rust/`), then run `--test-fetch
 - **System theme polling**: crossterm has no system-event source, so `theme=system` is implemented as a **30 s registry poll** of `AppsUseLightTheme` (replaces the tray edition's `WM_SETTINGCHANGE` listener). Only applies when the theme setting is `system`. (SPEC 20)
 - **No single-instance mutex**: unlike the tray/Qt/WPF editions (`KimiPlanbarTray.SingleInstance`), multiple TUI instances are allowed. Do not add a mutex. (SPEC 20)
 
-TS-edition-only traps (full list in `docs/SPEC-TS-DIFF.md`):
+TS-edition-only traps (full register: SPEC chapter 22):
 
 - **Bun/Windows raw mode is not a no-op safety net**: `process.stdin.setRawMode()` does not change the OS console mode, so `ts/src/tui/console.ts` sets it through `bun:ffi SetConsoleMode` — on the **input** handle `(HANDLE)-10` = `0xfffffff6` (`0xfffffff5` is the output handle and rejects those flags; M2 had this wrong) — and re-asserts it before every input event and redraw because Bun flips the console back to cooked on each stdin read. (SPEC 20)
+- **Ctrl+C cannot quit the Bun edition — do not "fix" it in app code**: measured 2026-09-20 on WT 1.24/conhost, Bun swallows the Ctrl+C console event entirely (a bare bun process with no handler and no stdin read ignores it too), so it reaches neither OpenTUI's key parser nor a JS `SIGINT`, whichever way `ENABLE_PROCESSED_INPUT` is set; the Rust edition quits normally from the same window. `q` is the quit key for this edition, the PROCESSED_INPUT clear is kept for crossterm parity only, and the SIGINT/SIGBREAK handlers stay as future-proofing. Reproduction scripts live in `ts/scripts/verify/`. (SPEC 22.6)
 - **Cell width must come from East Asian Width**, not `string.length`: the skills view renders CJK, and ratatui/OpenTUI count a Hanja glyph as 2 cells. Clipping must drop a wide glyph that straddles the edge rather than split the code point. (`ts/src/tui/line.ts`, SPEC 21.3)
 - **`bun:ffi` returns `bigint` for `i64`**: handle comparisons like `=== 0` silently fail; normalize with `Number()`. (`console.ts`, `shrink.ts`)
-- **OpenTUI render constraints**: text content is write-once per frame in practice (rebuild changed row handles), no absolute positioning in the test renderer (stream rows top-to-bottom), no whole-screen bg fill (pad every row to full width with a `window_bg` run), and `resize()` on the test renderer crashes — snapshot `TuiLine[]` instead. (SPEC-TS-DIFF §5, TS-EDITION-PLAN §2.6)
-- **The changelog Range request needs `Accept-Encoding: identity`** (Bun throws `ZlibError` on a gzipped 206), and `--use-system-ca` is required for the GitHub API fallback on machines whose AV re-signs TLS — it can only be passed to `bun run`, not baked into the compiled exe, so there the fallback degrades silently to `checkFailed`. (SPEC 17.2, SPEC-TS-DIFF §4)
-- **`process.execPath` is the TS `current_exe()`**: under `bun run dev` that is `bun.exe`, so portable mode and the autostart value only make sense for the compiled exe. (SPEC-TS-DIFF §3)
-- **Never `git add -A` in this work tree**: `ts-nodejs/` and `docs/TS-EDITION-PLAN-NODEJS.md` are an unadopted parallel route kept as an archive; stage `ts/...` paths explicitly.
+- **OpenTUI render constraints**: text content is write-once per frame in practice (rebuild changed row handles), no absolute positioning in the test renderer (stream rows top-to-bottom), no whole-screen bg fill (pad every row to full width with a `window_bg` run), and `resize()` on the test renderer crashes — snapshot `TuiLine[]` instead. (SPEC §22.5)
+- **The changelog Range request needs `Accept-Encoding: identity`** (Bun throws `ZlibError` on a gzipped 206), and `--use-system-ca` is required for the GitHub API fallback on machines whose AV re-signs TLS — it can only be passed to `bun run`, not baked into the compiled exe, so there the fallback degrades silently to `checkFailed`. (SPEC 17.2, §22.4)
+- **`process.execPath` is the TS `current_exe()`**: under `bun run dev` / `npm run dev` that is the runtime binary (`bun.exe` / `node.exe`), so portable mode and the autostart value only make sense for the compiled exe. (SPEC §22.3)
+
+Node-edition-only traps (`ts-nodejs/`; SPEC §22.5/§22.6):
+
+- **The 250 ms draw heartbeat is the event loop's keep-alive anchor — never `unref` it**: a pending promise does not hold Node's loop open and a piped stdin holds no handle; the heartbeat is cleared by the unified teardown path on quit. (SPEC §22.5)
+- **Erasable-syntax-only TypeScript**: Node type stripping rejects enums, namespaces and constructor parameter properties at load time (M2-N hit this with a parameter property in `screen.ts`). `npm run typecheck` must stay at 0 errors. (SPEC §22.5)
+- **`--use-system-ca` needs Node ≥ 24.6** (`engines` pins it) and — unlike the Bun build — the SEA exe gets it baked in via `execArgv`, so the GitHub API fallback works in the compiled build too. (SPEC §22.4)
+- **`sanitize()` is the only injection firewall**: with a handwritten renderer there is no widget-level escape immunity; every external string passes `sanitize()` before entering a frame, and the tests pin an injection case. (SPEC §22.5)
+- **The startup shrink is a graceful no-op today**: the env-var heuristic (any of `WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` → shared console, never resize) is correct, but current ConPTY forwards no window-op escapes, so `ESC[8;13;72t` does nothing on WT 1.24/conhost (measured 2026-09-20). (SPEC §22.6)
+- **Terminal restore is registered before terminal init**, and `createTerminal()` itself writes LEAVE before rethrowing a setup failure (a thrown `setRawMode` must not strand the alternate screen). (SPEC §22.5)
 
 
 ## Security considerations

@@ -4,7 +4,7 @@
 >
 > 本文档是整个项目的**唯一权威规格**（single source of truth），分两篇：
 > - **第一篇 项目规格**（第 1–9 章）：目标、架构、数据流、安全、构建发布、维护边界
-> - **第二篇 UI 与行为规格**（第 10–21 章）：配色、布局、API 解析、持久化等全部数值细则
+> - **第二篇 UI 与行为规格**（第 10–22 章）：配色、布局、API 解析、持久化等全部数值细则；第 22 章登记两个 TS 版与 Rust 版不等价的实现机制
 >
 > 章节编号与托盘版（kimi-planbar-tray）的 SPEC 保持一致，便于交叉对照；其中 **第 10 章（窗口规格）、第 14 章（托盘行为）、第 15 章（动画）对 TUI 版不适用**，以短章声明原因。其余章节内容相同的，本文档仍完整重述契约——本文档可独立成立，不依赖托盘版 SPEC。
 >
@@ -50,14 +50,17 @@ Windows 终端常驻仪表盘（无托盘、无窗口、无动画），让 Kimi 
 
 ### 3.1 仓库结构
 
-Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版（Bun + OpenTUI）位于 `ts/`，与本规格共享行为契约：
+Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版有两个并行实现——Bun + OpenTUI 版位于 `ts/`，Node 24 + 手写 ANSI 版位于 `ts-nodejs/`，三者共享同一行为契约（本规格）：
 
 - `rust/Cargo.toml` / `rust/Cargo.lock` — 包名与二进制名均为 `kimi-planbar-tui`
 - `rust/src/` — 后端 core 模块（自托盘版 `rust/src-tauri/src/` 去 Tauri 化移植）+ `rust/src/format.rs`（格式化 helper，移植自托盘版前端 `src/common.ts`）+ `rust/src/app.rs` 与 `rust/src/ui/`（全新代码：事件循环与 ratatui 视图层）
 - `ts/package.json` / `ts/tsconfig.json` — 包名 `kimi-planbar-tui-ts`，版本独立从 0.1.0 起步
 - `ts/src/core/` — 与 Rust core 行为 1:1 的十个模块（凭证链、quota、polling、settings、skills、update、format、theme、state、严格 JSON）；禁止 import 任何 `@opentui` 符号
 - `ts/src/tui/` — OpenTUI 渲染层（line / dashboard / settingsView / skillsView / renderer / app / console / shrink），与 core 严格分层，可整体替换
-- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）两版共享；**TS 版与 Rust 版不等价的实现机制统一登记在 `docs/SPEC-TS-DIFF.md`**，按本规格章节号归档，实施计划见 `docs/TS-EDITION-PLAN.md`
+- `ts-nodejs/package.json` — 包名 `kimi-planbar-tui-ts-nodejs`，版本独立从 0.1.0 起步
+- `ts-nodejs/src/core/` — 自 `ts/src/core/` 平移的同一套十个模块（仅把 3 处 `Bun.*` 调用换成 `node:child_process`，其余逐字节一致）
+- `ts-nodejs/src/tui/` — 手写 ANSI 渲染层（ansi / wcwidth / screen / terminal）+ 视图（dashboard / settingsView / skillsView / app），无任何 TUI 库
+- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）三版共享；**两个 TS 版与 Rust 版不等价的实现机制统一登记在第 22 章**，按本规格章节号归档
 - 根目录：`AGENTS.md`、`README.md`、`README_CN.md`、`LICENSE`、`NOTICE`
 
 ### 3.2 进程与视图模型
@@ -175,7 +178,8 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 ### 7.2 测试
 
 - `cargo test`：skills frontmatter 解析单测（自托盘版移植）+ quota JSON 解析单测（字符串/数字混排、`isEnabled=false`、单位四舍五入、除零）——本项目族首个真正的解析测试套件
-- **TS 版**：`cd ts && bun run test`（`bun:test`，用例对照 `rust/src/` 单测 1:1 移植，并额外对 Rust oracle golden 做全等断言；时区由脚本固定为 `Asia/Shanghai`，直接 `bun test` 会因时区使 golden 失败）。跨版本一致性：`bun run parity` 与本机 Rust exe 背靠背比对两个无头自检；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 比对编译产物。验证方法与豁免项见 `docs/SPEC-TS-DIFF.md` §1
+- **TS 版（Bun）**：`cd ts && bun run test`（`bun:test`，用例对照 `rust/src/` 单测 1:1 移植，并额外对 Rust oracle golden 做全等断言；时区由脚本固定为 `Asia/Shanghai`，直接 `bun test` 会因时区使 golden 失败）。跨版本一致性：`bun run parity` 与本机 Rust exe 背靠背比对两个无头自检；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 比对编译产物。验证方法与豁免项见 22.1
+- **TS 版（Node）**：`cd ts-nodejs && npm test`（`node:test` + 内置 `bun-shim`，用例与 Bun 版同源；TZ 由 `scripts/run-tests.mjs` 固定）。`npm run parity` 与 `node test/parity/diff.ts --ts-exe dist/kpt-tui-node.exe` 同上；`npm run typecheck` 保持 0 error。同一 golden 集与背靠背方法（22.1）
 - 无头自检（详见第 19 章）：`--test-fetch` / `--test-update`，无互斥锁，天然可与运行中实例并存
 - 一致性验证：与托盘版同机背靠背跑 `--test-fetch`，JSON 逐字段 diff
 - 视觉验证：在 Windows Terminal 双主题下人工对照第 11/12 章
@@ -241,7 +245,7 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 | `badge_fg`（新版本徽标字） | `#E06D00` | `#F0A040` |
 
 - 强调色（Moonshot 蓝）两主题相同：`#1A88FF`。
-- 选中态（设置表单选中项、列表高亮行）文字色固定为白色（`#FFFFFF`）配 `accent` 底，不随主题变——对应托盘版"选中丸/复选勾文字固定 White"的约定。
+- 选中态（设置表单光标行、skills 列表高亮行）：`text_primary` 文字配 `button_hover` 底；白字（`#FFFFFF`）配 `accent` 底只用于"当前值"指示（刷新间隔的激活 pill、获得焦点的 Save 动作行）——对应托盘版"选中丸/复选勾文字固定 White"的约定。
 - 终端需支持 truecolor（Windows Terminal / VS Code 终端均支持）；不支持 truecolor 的终端不保证观感。
 
 ### 11.2 进度条颜色
@@ -522,8 +526,8 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ## 20. 其他实现细节（TUI 专有）
 
-- **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。终端被留在 raw mode 是 TUI 最严重的事故。**TS 版**：panic hook 的等价物是 `process.on('uncaughtException'/'unhandledRejection')`，raw mode 须由 `bun:ffi SetConsoleMode` 显式设置并在每次输入/重绘前重申（Bun/Windows 的 `setRawMode` 不改动 OS 控制台模式），机制与实测见 `docs/SPEC-TS-DIFF.md` §5。
-- **启动时最小窗口（72×13）**：`run()` 起始、终端初始化之前，把窗口收缩到线框布局的最小尺寸（72 列 × 13 行，常量 `MIN_WIN_COLS`/`MIN_WIN_ROWS`）。**守卫**：仅当进程独占控制台时执行——`GetConsoleProcessList` 返回恰好 1 个附加进程（双击/新开窗口启动）；从已有终端会话（cmd / pwsh / Git Bash / 其他 WT 标签页）启动时控制台是共享的，绝不改动用户窗口。两条 best-effort 通道，异常静默吞掉：(a) xterm 窗口操作转义 `ESC [ 8 ; 13 ; 72 t`（Windows Terminal 1.22+ 支持）；(b) conhost Win32 序列：先 `SetConsoleWindowInfo` 缩视口到 1×1 → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` 设为完整 72×13 矩形。**TS 版同判据**：`GetConsoleProcessList` 经 `bun:ffi` 调用，故守卫与两条通道与本章一致；仅当 FFI 不可用时退回终端环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`TERM`/`ConEmuPID`/`MSYSTEM`），且 `stdout` 非 TTY 时一律不缩。结构体按值传参的手工打包方式与待实测项见 `docs/SPEC-TS-DIFF.md` §6。
+- **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。终端被留在 raw mode 是 TUI 最严重的事故。两个 TS 版的等价机制（Bun 版需 `bun:ffi SetConsoleMode` 并在每次输入/重绘前重申；Node 版由 Node 自身处理 raw mode，但须保证恢复处理器先于终端初始化注册）见 22.5。
+- **启动时最小窗口（72×13）**：`run()` 起始、终端初始化之前，把窗口收缩到线框布局的最小尺寸（72 列 × 13 行，常量 `MIN_WIN_COLS`/`MIN_WIN_ROWS`）。**守卫**：仅当进程独占控制台时执行——`GetConsoleProcessList` 返回恰好 1 个附加进程（双击/新开窗口启动）；从已有终端会话（cmd / pwsh / Git Bash / 其他 WT 标签页）启动时控制台是共享的，绝不改动用户窗口。两条 best-effort 通道，异常静默吞掉：(a) xterm 窗口操作转义 `ESC [ 8 ; 13 ; 72 t`（Windows Terminal 1.22+ 支持）；(b) conhost Win32 序列：先 `SetConsoleWindowInfo` 缩视口到 1×1 → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` 设为完整 72×13 矩形。**TS 版（Bun）同判据同通道**：`GetConsoleProcessList` 经 `bun:ffi` 调用，FFI 不可用时退回终端环境变量启发式（结构体按值传参的手工打包见 22.6）。**TS 版（Node）**：无 Win32 binding，守卫只用环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` 全缺才缩），通道仅 (a)——且经实测当前 ConPTY 不透传该窗口操作转义，在本机为优雅 no-op（见 22.6）。
 - **事件驱动重绘 + 250ms 心跳**：每个事件（键盘、配额 mpsc、版本 mpsc、skills mpsc、主题 tick、resize）处理后立即在事件循环顶部重绘一帧——不存在合并/节流（任意事件都会即时出帧）。另有一个 250ms 心跳 tick（`draw_tick`）在无事件时唤醒循环，保证倒计时文案持续刷新；倒计时文案随每次重绘重算（输入 `reset_at - now`），无独立 1Hz 定时器。
 - **系统主题 30s 轮询**：crossterm 无系统事件源，`theme=system` 时以 30s 间隔轮询注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` 的 `AppsUseLightTheme`（DWORD，0=dark，1=light，缺失默认 1），替代托盘版的 `WM_SETTINGCHANGE` 实时监听；`theme=light|dark` 时该轮询不影响配色。
 - **无单实例互斥锁**：允许多实例并存（每个终端一个），不创建 `KimiPlanbarTray.SingleInstance` 或任何命名互斥锁。
@@ -557,3 +561,80 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - 列表按来源分组（组内按名称不区分大小写排序），`↑/↓` 滚动只读；每项：名称（加粗）+ 描述（超出终端宽度的描述截断显示）。
 - 全部颜色走 `theme.rs` 调色板，自动跟随 Moonlit/Moondark。
 - 外部数据（skill 名称/描述）一律经 ratatui 文本 widget 渲染，不拼终端转义序列。
+
+---
+
+## 22. TS 各版实现差异登记
+
+> 本章集中登记两个 TS 版——Bun 版（`ts/`，Bun + OpenTUI）与 Node 版（`ts-nodejs/`，Node 24 + 手写 ANSI）——在实现机制上与 Rust 版不等价之处，按本规格章节号归档。前述各章描述的行为契约以 Rust 版为基准；本章条目均为实现层面的等价机制或已知偏差，全部有测试锁定。
+
+### 22.1 验证方法（对应 7.2 / 19）
+
+- **`--test-fetch` 字节 parity 契约**：各版输出除 `fetchedAt` 的**值**以外必须逐字节相同。该字段是唯一豁免项——Rust 用 100 ns 精度的系统时钟、chrono 固定打印 9 位小数，JS `Date` 只有毫秒。比对时两侧都归一化为 `"fetchedAt": "<NOW>"`（`ts/test/parity/diff.ts`、`ts-nodejs/test/parity/diff.ts`）。
+- **两套证据**：
+  1. **Rust oracle golden**（纯解析与文本格式）：临时 cargo 工程原样复用 `rust/src/quota.rs` 的 DTO 与解析函数，产出 `ts/test/golden/`（浮点文本表、chrono 时间戳表、`from_str` 矩阵、30 个 `QuotaResult` 文档、`settings.json` 文档；`ts-nodejs/test/golden/` 为同一组文件的副本）。TS 测试对 golden 做**全等**断言。
+  2. **同机背靠背**（含真实网络）：`bun run parity` / `npm run parity` 跑 Rust exe 与 TS 自检各两遍并 diff。实测：`--test-fetch` 19 行全等、`--test-update` 1 行全等（成功路径，非 `no-token` 分支），编译产物同样通过（`--ts-exe`）。
+- 两版 TS 测试都把时区固定为 `Asia/Shanghai`（Bun 版在 `ts/package.json` 脚本里，Node 版在 `ts-nodejs/scripts/run-tests.mjs`）：golden 里的时间戳是 `DateTime<Local>`，换时区需重新生成 golden。
+
+### 22.2 数据与 API（对应 16.2 / 16.3 / 16.4）
+
+两个 TS 版同源（Node 版平移自 Bun 版），机制本应一致。**当前状态限定（2026-09-20）**：本轮 M1 审查的 core 修复（JSON 深度上限、非 2xx 排空 body、resetTime 阶梯、`RefreshMinutes` 钳位、polling clamp、skills 4 KiB 读）**只落在 `ts/`**，`ts-nodejs/` 尚未平移（其实测仍是修复前版本，含 13 行的旧 `reset_time.txt`）。下表描述的是 `ts/` 的行为，对 Node 版待平移后方成立；平移前 Node 版与 Rust 的差异另见 22.6 与本表逐条对照。
+
+| Rust 机制 | TS 等价实现 | 锁定点 |
+|---|---|---|
+| `str::parse::<f64/i64>()` | `parseF64Strict` / `parseI64Strict`（`core/json.ts`），按 Rust 语法整串匹配 | `""`、`68abc`、`0x10`、`1_000`、`1 000` → 失败；`1.`、`.5`、`1e5`、`+68`、`inf`、`NaN` → 成功；`i64` 不接受小数与指数；越界即失败 |
+| `str::trim()` | `rustTrim`，Unicode White_Space 集：**含 U+0085、不含 U+FEFF**（JS 原生 `trim()` 恰好相反） | golden `parse_matrix` |
+| `serde_json::Number::as_i64()` | `jAsI64`：只有**整数形态的 number token** 才有值，`1.0` / `1e5` / `-0.0` 一律视为无值 | golden `as_i64` |
+| `i64` 范围 | 全程 `bigint`（`balanceCents`、`monthlyUsedCents`、`monthlyLimitCents`、`(raw+500000)/1000000`），整除截断与 `saturating_add` 精确 | quota 测试 |
+| `f64` 文本 | `formatF64`：serde_json/ryu 形态——恒带小数点或指数；十进制指数 ∈ [-5,15] 用定点，否则 `1e+16` / `1e-7` 形态；`-0.0` 保号；非有限值由序列化器写 `null` | golden `floats` + `float_grid` |
+| `chrono` 的 `DateTime<Local>` 文本 | `RustDateTime{ms,nanos}` + `autoSiFraction`：小数位为 9 位文本按整组 `000` 从右剥离（`.500000000`→`.500`），零则完全省略；偏移恒为 `±HH:MM`，绝不出现 `Z` | golden `datetime` + `reset_time` |
+| `resp.json()` 失败 | 自带严格 JSON 解析器（`parseJsonValue`）：`1e400` 触发 `number out of range` → `JsonException`；非 2xx 会先 `arrayBuffer()` **排空** body 再返回（Bun 只有消费完 body 才把 keep-alive 连接归还连接池，Rust reqwest 则直接丢弃连接——机制差异，输出不变）；headers 之后的 body 超时同样归 `JsonException` | quota 测试 |
+| 数值精度 | 超过 2^53 的 JSON 整数字面量：TS 用 token 走 `BigInt` 保持精确；`as_f64` 侧与 Rust 同为 double，无额外偏差 | — |
+
+### 22.3 设置与系统集成（对应 18.1 / 18.2 / 18.3）
+
+- **`current_exe()` 的等价物是 `process.execPath`**：Bun 版在 `bun run src/main.ts` 下是 `bun.exe`、`bun build --compile` 产物下才是 `kpt-tui.exe`；Node 版在 `node src/main.ts` 下是 `node.exe`、SEA 产物下是 `kpt-tui-node.exe`。因此**便携模式与开机自启只对编译产物有意义**；开发模式下 `portable.dat` 会被带去运行时安装目录找，自启值会写成运行时二进制的路径。Rust 版无此歧义。
+- `settings.json` 写入与 Rust 完全同字节：PascalCase、2-space 缩进、**无尾随换行**；读取遵循「整体失败回落默认、仅缺键才逐键默认」。
+- **`RefreshMinutes` 超出 2^53 会被钳到 `Number.MAX_SAFE_INTEGER`**：i64 边界判定全程走 `BigInt`（越出 i64 → 整体回落默认，与 Rust 的类型错误一致），但 `Number(bigint)` 在 2^53 之外会失真，故取值时钳到可精确表示的区间；Rust 侧原样保留 i64。这条差异延伸到轮询：Rust 用 `saturating_mul(60)`，极端值等于「几乎永不再刷」；TS 的延迟还要再被 `setTimeout` 的 32 位上限钳一次（`2_147_483_647` ms ≈ 24.8 天）。两版在任何合理取值（1/5/10/30）下完全一致。
+- 注册表一律 `spawn reg.exe` 并按 **GBK** 解码；自启仍只做写/删、不回读。`AppsUseLightTheme` 取 `REG_DWORD` 文本（`0x0`/`0x1`），任何异常 → light，与 Rust 的 `unwrap_or(1)` 同义。
+- 主题解析保持纯函数：`effectiveTheme(configured, system)`，系统值由 30 s 轮询写进缓存，渲染路径同步读取（Rust 在事件循环里同样是轮询）。
+
+### 22.4 版本检查（对应 17.1 / 17.2）
+
+- changelog 的 Range 请求必须带 **`Accept-Encoding: identity`**：GitHub Pages 返回 206 + gzip 时 Bun 解压分片会抛 `ZlibError`；Node 版保留同一头部作为防御性一致措施。Rust 的 reqwest 不受影响。
+- TLS 信任：本机 ESET 曾做 TLS 拦截、其根证书不在运行时自带的 CA 库内。
+  - **Bun 版**：脚本路径带 `--use-system-ca`；`bun build --compile` 无法把该开关固化进产物，编译产物在 TLS 拦截环境下 GitHub API 兜底静默降级为 `checkFailed`（额度与 changelog 主路径不受影响）。M4 复测（2026-09-20）：该拦截当前不复现。
+  - **Node 版**：`--use-system-ca` 需要 Node ≥ 24.6（`engines` 已锁 `>=24.6.0`），亦可用 `NODE_USE_SYSTEM_CA=1` 环境变量；SEA 打包经 `execArgv` 把 `--use-system-ca` **固化进产物**（无 Bun 版的降级问题）。
+- `kimi --version` 经子进程拉起（不走 shell），5 s 超时后强杀，stdout+stderr 按此顺序 lossy 拼接后取首个 `\d+\.\d+\.\d+`。
+
+### 22.5 配色与渲染层（对应 11.1 / 20）
+
+**两版共有**：
+
+- SPEC 11.1 列十色，`Palette` 实现只有九槽（`card_bg` 仅存在于规格）。
+- 格宽按 East Asian Width 计算：CJK/全角/Hangul/emoji 记 2 格、组合符号与变体选择符记 0 格、Ambiguous（`█ ░ · ¥ ● →`）记 1 格。裁剪按码点迭代，2 格字形放不进剩余 1 格时整体丢弃（对齐 ratatui 缓冲区行为），代理对不会被切断。Rust 侧由 unicode-width 自动处理。
+- 下划线属性：SPEC 13.2 选中 interval 行时 Rust 加 `Modifier::UNDERLINED`；Bun 版用 OpenTUI `underline()` style，Node 版直接发 SGR 4。
+- Skills 扫描放在下一个宏任务：先出 `Scanning...` 帧再异步跑扫描，对应 Rust 的 `spawn_blocking` + mpsc 回调；同步扫描会卡住重绘。设置保存的 `reg.exe` 自启写入仍同步（SPEC 13.2 的保存顺序要求它先返回）。
+
+**Bun 版（OpenTUI 渲染层）**：
+
+- 选中态文字：Rust 走 crossterm `Color::White` → SGR `37`（终端调色板白），OpenTUI 的 `"white"` 解析为 `#FFFFFF`。观感差异仅在用户自定义终端白时可见。
+- 整屏底色靠逐 span 合成：OpenTUI 无等价于 ratatui 整屏 `Block::bg` 的填充，未显式给 bg 的文本 run 会落到终端默认底色。故适配器把 `window_bg` 作为 base bg 合成到每个无自有 bg 的 span 上，并在每行右侧补 window_bg 空白 run 铺到满宽、行间补满宽空行铺到满高。
+- OpenTUI 实测约束：内容 write-once（变更行销毁重建）、测试渲染器无绝对定位（流式从上到下）、`resize()` 在测试渲染器崩溃（快照 `TuiLine[]` 代替）、键事件挂在 `renderer.keyInput`（`renderer.on("keypress")` 收不到）。
+- **raw mode 差异（重要）**：Bun 的 `process.stdin.setRawMode()` 在 Windows 下不改动 OS 控制台模式，且 Bun 每读一次 stdin 会把模式翻回 cooked。对策：`ts/src/tui/console.ts` 用 `bun:ffi` 直接 `SetConsoleMode`（清 `ENABLE_PROCESSED_INPUT|ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT`、置 `ENABLE_WINDOW_INPUT`；其中清 `PROCESSED_INPUT` 只为与 crossterm 对齐，**不会**让 Ctrl+C 可用，见 22.6），并在每次输入事件与每次重绘前重申 raw；退出路径还原原模式。注意输入句柄是 `(HANDLE)-10` = `0xfffffff6`（`0xfffffff5` 是输出句柄，M2 曾写错）；`bun:ffi` 对 `i64` 返回 `bigint`，比较前须 `Number()` 归一。
+
+**Node 版（手写 ANSI 渲染层）**：
+
+- 渲染层为手写 ANSI（`tui/ansi.ts`、`wcwidth.ts`、`screen.ts`、`terminal.ts`），无任何第三方 TUI 库。帧模型 = `TuiLine[]`；写屏为**行级 diff**：与上一帧逐行比对，仅对变化行发 `\x1b[{row};1H` + 行内容；首帧 `\x1b[2J\x1b[H` 全清；帧首尾包 DEC 2026 同步输出（不支持的终端静默忽略私有模式）；底行不写满最后一格（防右下角 cell 触发整屏上滚，配合启动时 DECAWM 关 `\x1b[?7l` 双保险）。
+- **sanitize 是注入防线的唯一关卡**：没有 widget 级免疫，一切外部字符串（skill 名称/描述、API 文案）进帧前过 `sanitize()`（先整段剥 ANSI 序列 CSI/OSC，再剥残余控制符）；测试含注入用例。
+- wcwidth 为内嵌码点区间表（`tui/wcwidth.ts`），不引 npm 包。
+- raw mode 与 VT 输入/输出模式由 Node 在 TTY 上自动处理（`ENABLE_VIRTUAL_TERMINAL_PROCESSING` / `ENABLE_VIRTUAL_TERMINAL_INPUT`），无需 Win32 调用；但恢复处理器必须在终端初始化**之前**注册（对齐 Rust panic hook 先于终端初始化），且 `createTerminal()` 自身对 ENTER 之后的步骤做 try/catch——失败先写 LEAVE 再抛。
+- **250 ms 心跳定时器不可 `unref`**：Node 中 pending promise 不保活事件循环，非 TTY stdin 也不持有句柄——该定时器是事件循环的保活锚点，退出时由统一销毁路径清除。Rust/Bun 版无此约束。
+- TS 执行依赖 Node 原生 type stripping，只允许可擦除语法（无 enum/namespace/参数属性）；`tsc --noEmit` 须保持 0 error。
+
+### 22.6 无单实例互斥与启动缩窗（对应 20）
+
+- **无单实例互斥**：三版一致，允许多实例并存，不建任何命名互斥锁。
+- **Bun 版缩窗与 Rust 同判据**：`bun:ffi` 调 `kernel32!GetConsoleProcessList` 可用，按「附加到本控制台的进程数恰好为 1」判定独占；环境变量启发式只在 FFI 不可用时兜底；`stdout` 非 TTY 时一律不缩。两条缩窗通道与 Rust 同名同序（(a) `ESC [ 8 ; 13 ; 72 t`；(b) conhost Win32 序列），差别只在传参方式：`COORD`/`SMALL_RECT` 按值传参，bun:ffi 无结构体参数，故按 x64 调用约定手工打包进整数寄存器（`COORD = (y<<16)|x`，`SMALL_RECT` 四个 i16 依次占 0/16/32/48 位）。
+- **Node 版缩窗为环境变量启发式**：无 Win32 binding，`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` 任一存在 → 共享终端，绝不缩窗；三者全缺 → 进入 alternate screen 之前向 stdout 发 `ESC[8;13;72t`（异常静默吞掉）。**实测结论（2026-09-20，WT 1.24 / conhost，经 Start-Process 新窗口 + 回读 `stdout.columns` 探针）**：当前 ConPTY 不透传窗口操作转义——CSI 8、CSI 4（像素）、`mode con` 三条通道均不生效，该序列在本机为优雅 no-op，窗口保持默认尺寸；未来 ConPTY 若转发窗口操作则自动生效。
+- **Bun 版 Ctrl+C 不能退出（实测 2026-09-20，WT 1.24 / conhost）**：`ts/src/tui/console.ts` 清 `ENABLE_PROCESSED_INPUT` 是为与 crossterm 对齐（同时让 Ctrl+B/Ctrl+H 以字节送达），但 Bun 运行时下 Ctrl+C **既不作为按键送达、也不作为 JS SIGINT 送达**，置位/清零两条路都实测过：裸 bun 进程（不改 console mode、不注册 handler、不读 stdin）对 Ctrl+C 无反应；同一窗口、同一注入方式下 Rust 版（crossterm）正常退出；OpenTUI 解析器对 `0x03` 能正确产出 `{name:"c",ctrl:true}`（`ts/scripts/verify/parse-ctrlc.ts`）。可见事件被 Bun 侧吞掉。故 **Bun 版的退出键以 `q` 为准**；`app.ts` 的 SIGINT/SIGBREAK handler 与 `handleKey` 的 ctrl+c 分支保留（当前不改变行为，运行时若修复即自动生效）。复现脚本见 `ts/scripts/verify/`。

@@ -11,3 +11,4 @@ SHA256SUMS.txt
 # ts/ edition (Bun)
 node_modules/
 ts/dist/
+ts-nodejs/dist/

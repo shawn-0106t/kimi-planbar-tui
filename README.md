@@ -35,7 +35,7 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 ## Download
 
-Get the latest `kimi-planbar-tui.exe` from [Releases](../../releases), or build from source (below). The same page carries the **TS edition** as `kpt-tui.exe` — the same behavior and UI implemented on Bun + OpenTUI; it is ~90 MB because it embeds the Bun runtime. If you already have Bun, you can skip the download and run `bun run dev` instead.
+Get the latest `kimi-planbar-tui.exe` from [Releases](../../releases), or build from source (below). The same page carries two **TS editions**: `kpt-tui.exe` (Bun + OpenTUI, ~90 MB embedding the Bun runtime) and `kpt-tui-node.exe` (Node 24 + handwritten ANSI, ~88.7 MB embedding the Node runtime) — same behavior and UI either way. If you already have Bun or Node ≥ 24.6, you can skip the download and run from source instead.
 
 > Windows SmartScreen may warn on first launch because the exe is not code-signed. Click "More info" → "Run anyway" — this is expected for unsigned personal builds.
 
@@ -98,7 +98,22 @@ bun run test            # bun:test suite (the script pins TZ=Asia/Shanghai)
 bun run parity          # diff --test-fetch / --test-update against the Rust exe
 ```
 
-Both editions implement the same contract, `docs/SPEC.md`; the places where the TS edition is mechanically different are registered in `docs/SPEC-TS-DIFF.md` (for example: behind TLS-inspecting security software the script run needs `--use-system-ca` for the GitHub API version-check fallback, and a compiled exe cannot embed that flag — there only "check for updates" degrades silently to `checkFailed`, while quota and the changelog path are unaffected).
+> **Quit the Bun edition with `q`**: measured on WT 1.24 / conhost (2026-09-20), the Bun runtime swallows the Ctrl+C console event — it arrives neither as a keypress nor as a SIGINT — so Ctrl+C does nothing in this edition (the Rust edition quits normally). See SPEC 22.6.
+
+### TS edition (Node 24 + handwritten ANSI)
+
+Requires Node.js ≥ 24.6 on Windows (the sources run directly on Node's native type stripping; `--use-system-ca` exists since 24.6). No Bun, no Cargo.
+
+```bash
+cd ts-nodejs
+npm install
+npm run dev             # run the TUI straight from src/main.ts
+npm run build:exe       # SEA single-file exe → ts-nodejs/dist/kpt-tui-node.exe (~88.7 MB, embeds Node)
+npm test                # node:test suite (scripts/run-tests.mjs pins TZ=Asia/Shanghai)
+npm run parity          # diff --test-fetch / --test-update against the Rust exe
+```
+
+All editions implement the same contract, `docs/SPEC.md`; the places where a TS edition is mechanically different are registered in SPEC chapter 22 (for example: behind TLS-inspecting security software a script run needs `--use-system-ca` for the GitHub API version-check fallback; the Bun exe cannot embed that flag and degrades to `checkFailed` there, while the Node SEA exe has it baked in via `execArgv`).
 
 Headless self-checks (useful in CI or after changes):
 
@@ -128,6 +143,7 @@ After that, `kimi-planbar-tui` works in any terminal. Alternative: copy `rust/ta
 
 - Single Rust crate in `rust/`: ratatui + crossterm (TUI), tokio + reqwest + serde (async/HTTP/JSON), winreg (registry), windows 0.61 (Win32 console), regex + chrono
 - A behaviorally equivalent TS edition in `ts/`: Bun + `@opentui/core` (imperative render API, no React), registry through `reg.exe` child processes, and the Win32 console pieces (raw mode, console-ownership check, window shrink) through `bun:ffi`
+- A second behaviorally equivalent TS edition in `ts-nodejs/`: Node 24 with a handwritten ANSI render layer (no TUI library — line-level diff writes, an embedded wcwidth table, and a `sanitize()` firewall for external strings), registry through `reg.exe`, packaged as a Node SEA exe with `--use-system-ca` baked into `execArgv`
 - The release exe embeds a Windows VERSIONINFO resource and the app icon via `rust/build.rs` (`winresource` build-dependency, `rust/assets/icon.ico`); FileVersion/ProductVersion derive automatically from `CARGO_PKG_VERSION`, and embedding failure only warns (machines without the Windows SDK rc.exe still compile)
 - Backend modules are ported 1:1 from the sibling tray app [kimi-planbar-tray](https://github.com/shawn-0106t/kimi-planbar-tray) (Tauri edition) with Tauri removed; the shared behavior contract lives in `docs/SPEC.md`
 - Quota logic adapted from [kimi-planbar](https://github.com/baigong-ai/kimi-planbar) (MIT) — same token sources, endpoint, and cache/retry strategy

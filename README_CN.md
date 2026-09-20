@@ -35,7 +35,7 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 ## 下载
 
-从 [Releases](../../releases) 获取最新 `kimi-planbar-tui.exe`，或从源码构建（见下文）。同一页另有 **TS 版** `kpt-tui.exe`（Bun + OpenTUI 实现，行为与界面完全一致，因内嵌 Bun 运行时体积约 90 MB；已装 Bun 的用户也可以直接 `bun run dev` 不下载 exe）。
+从 [Releases](../../releases) 获取最新 `kimi-planbar-tui.exe`，或从源码构建（见下文）。同一页另有两个 **TS 版**：`kpt-tui.exe`（Bun + OpenTUI，内嵌 Bun 运行时，约 90 MB）与 `kpt-tui-node.exe`（Node 24 + 手写 ANSI，内嵌 Node 运行时，约 88.7 MB）——行为与界面完全一致。已装 Bun 或 Node ≥ 24.6 的用户也可以直接从源码运行，不下载 exe。
 
 > exe 未做代码签名，首次运行 Windows SmartScreen 可能提示"已保护你的电脑"——点"更多信息 → 仍要运行"即可，这是未签名个人作品的正常提示。
 
@@ -98,7 +98,22 @@ bun run test            # bun:test 套件（脚本会固定 TZ=Asia/Shanghai）
 bun run parity          # 与 Rust 版 exe 背靠背比对 --test-fetch / --test-update 输出
 ```
 
-两版共享同一行为契约 `docs/SPEC.md`；TS 版与 Rust 版机制不等价之处统一登记在 `docs/SPEC-TS-DIFF.md`（例如：TLS 检查类安全软件环境下，TS 版脚本运行需 `--use-system-ca` 才能走通 GitHub API 兜底，而编译产物无法内嵌该开关——此时仅"检查最新版本"会静默降级为 `checkFailed`，额度与 changelog 主路径不受影响）。
+> **Bun 版退出请用 `q`**：实测（WT 1.24 / conhost，2026-09-20）Bun 运行时会吞掉 Ctrl+C 的 console 事件，既不送达按键也不触发 SIGINT，因此该版 Ctrl+C 无效（Rust 版正常）。详见 SPEC 22.6。
+
+### TS 版（Node 24 + 手写 ANSI）
+
+需要 Windows + Node.js ≥ 24.6（源码直接由 Node 原生 type stripping 运行；`--use-system-ca` 自 24.6 起可用）。不需要 Bun，也不需要 Cargo。
+
+```bash
+cd ts-nodejs
+npm install
+npm run dev             # 直接从 src/main.ts 起 TUI
+npm run build:exe       # SEA 单文件 exe → ts-nodejs/dist/kpt-tui-node.exe（内嵌 Node 运行时，~88.7 MB）
+npm test                # node:test 套件（scripts/run-tests.mjs 固定 TZ=Asia/Shanghai）
+npm run parity          # 与 Rust 版 exe 背靠背比对 --test-fetch / --test-update 输出
+```
+
+三版共享同一行为契约 `docs/SPEC.md`；TS 版与 Rust 版机制不等价之处统一登记在 SPEC 第 22 章（例如：TLS 检查类安全软件环境下，脚本运行需 `--use-system-ca` 才能走通 GitHub API 兜底；Bun 版编译产物无法内嵌该开关、会静默降级为 `checkFailed`，Node 版 SEA 产物则经 `execArgv` 固化，不受影响；额度与 changelog 主路径均不受影响）。
 
 无头自检（适合 CI 或改动后验证）：
 
@@ -128,6 +143,7 @@ cargo install --path rust   # 安装 release exe 到 ~/.cargo/bin（Rust 用户�
 
 - 单 Rust crate 位于 `rust/`：ratatui + crossterm（TUI），tokio + reqwest + serde（异步/HTTP/JSON），winreg（注册表），windows 0.61（Win32 控制台），regex + chrono
 - 另有一份行为等价的 TS 版位于 `ts/`：Bun + `@opentui/core`（命令式渲染，不用 React），注册表走 `reg.exe` 子进程，Win32 控制台能力（raw mode / 控制台独占判定 / 缩窗）经 `bun:ffi` 调 kernel32
+- 第二份行为等价的 TS 版位于 `ts-nodejs/`：Node 24 + 手写 ANSI 渲染层（不引 TUI 库——行级 diff 写屏、内嵌 wcwidth 码点表、外部字符串一律过 `sanitize()`），注册表走 `reg.exe`，以 Node SEA 打包且 `--use-system-ca` 经 `execArgv` 固化进产物
 - release exe 通过 `rust/build.rs`（`winresource` build-dependency）嵌入 Windows VERSIONINFO 资源与应用图标（`rust/assets/icon.ico`）；FileVersion/ProductVersion 自动取自 `CARGO_PKG_VERSION`，嵌入失败只告警不中断构建（无 Windows SDK rc.exe 的机器也能编译）
 - 后端模块自姊妹项目托盘版 [kimi-planbar-tray](https://github.com/shawn-0106t/kimi-planbar-tray)（Tauri 版）去掉 Tauri 后 1:1 移植；共享行为契约见 `docs/SPEC.md`
 - 额度逻辑移植自 [kimi-planbar](https://github.com/baigong-ai/kimi-planbar)（MIT）——token 来源、接口与缓存/重试策略一致
