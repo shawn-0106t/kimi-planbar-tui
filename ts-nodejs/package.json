@@ -1,0 +1,29 @@
+{
+  "name": "kimi-planbar-tui-ts-nodejs",
+  "version": "0.1.0",
+  "description": "Terminal-resident Kimi Code plan quota dashboard (TS edition, Node.js + handwritten ANSI)",
+  "type": "module",
+  "private": true,
+  "files": [
+    "src/",
+    "scripts/"
+  ],
+  "engines": {
+    "node": ">=24.6.0"
+  },
+  "scripts": {
+    "dev": "node --use-system-ca src/main.ts",
+    "selfcheck:fetch": "node --use-system-ca src/main.ts --test-fetch",
+    "selfcheck:update": "node --use-system-ca src/main.ts --test-update",
+    "test": "node scripts/run-tests.mjs",
+    "parity": "node scripts/run-parity.mjs",
+    "typecheck": "tsc --noEmit",
+    "build:exe": "node scripts/build-sea.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.6",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6",
+    "typescript": "^5.9.2"
+  }
+}

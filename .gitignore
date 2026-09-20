@@ -12,3 +12,6 @@ SHA256SUMS.txt
 node_modules/
 ts/dist/
 ts-nodejs/dist/
+
+# terminal-probe stderr captures (launch wrappers redirect here)
+*.err.log
