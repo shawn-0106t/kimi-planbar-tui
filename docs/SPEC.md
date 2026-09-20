@@ -578,7 +578,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ### 22.2 数据与 API（对应 16.2 / 16.3 / 16.4）
 
-两个 TS 版同源（Node 版平移自 Bun 版），机制本应一致。**当前状态限定（2026-09-20）**：本轮 M1 审查的 core 修复（JSON 深度上限、非 2xx 排空 body、resetTime 阶梯、`RefreshMinutes` 钳位、polling clamp、skills 4 KiB 读）**只落在 `ts/`**，`ts-nodejs/` 尚未平移（其实测仍是修复前版本，含 13 行的旧 `reset_time.txt`）。下表描述的是 `ts/` 的行为，对 Node 版待平移后方成立；平移前 Node 版与 Rust 的差异另见 22.6 与本表逐条对照。
+两个 TS 版同源（Node 版平移自 Bun 版），机制本应一致。**当前状态（2026-09-20 平移完成）**：M1 审查的 core 修复——JSON 深度上限、resetTime 阶梯、`RefreshMinutes` 钳位、polling clamp、skills 4 KiB 读——已平移到 `ts-nodejs/`（`reset_time.txt` golden 同步扩到 28 行，与 `ts/` 同一份）。唯一保留的差异：**非 2xx 排空 body 仍为 Bun 版独有**，Node 版有意不排空（由 `ts-nodejs/test/quota.test.ts` 的 `bodyUsed === false` 用例钉死），见下表对应行。下表其余各行对两个 TS 版同时成立。
 
 | Rust 机制 | TS 等价实现 | 锁定点 |
 |---|---|---|
@@ -588,7 +588,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 | `i64` 范围 | 全程 `bigint`（`balanceCents`、`monthlyUsedCents`、`monthlyLimitCents`、`(raw+500000)/1000000`），整除截断与 `saturating_add` 精确 | quota 测试 |
 | `f64` 文本 | `formatF64`：serde_json/ryu 形态——恒带小数点或指数；十进制指数 ∈ [-5,15] 用定点，否则 `1e+16` / `1e-7` 形态；`-0.0` 保号；非有限值由序列化器写 `null` | golden `floats` + `float_grid` |
 | `chrono` 的 `DateTime<Local>` 文本 | `RustDateTime{ms,nanos}` + `autoSiFraction`：小数位为 9 位文本按整组 `000` 从右剥离（`.500000000`→`.500`），零则完全省略；偏移恒为 `±HH:MM`，绝不出现 `Z` | golden `datetime` + `reset_time` |
-| `resp.json()` 失败 | 自带严格 JSON 解析器（`parseJsonValue`）：`1e400` 触发 `number out of range` → `JsonException`；非 2xx 会先 `arrayBuffer()` **排空** body 再返回（Bun 只有消费完 body 才把 keep-alive 连接归还连接池，Rust reqwest 则直接丢弃连接——机制差异，输出不变）；headers 之后的 body 超时同样归 `JsonException` | quota 测试 |
+| `resp.json()` 失败 | 自带严格 JSON 解析器（`parseJsonValue`）：`1e400` 触发 `number out of range` → `JsonException`；**仅 Bun 版**在非 2xx 时先 `arrayBuffer()` **排空** body 再返回（Bun 只有消费完 body 才把 keep-alive 连接归还连接池；Node 版有意不排空，Rust reqwest 则直接丢弃连接——机制差异，输出不变）；headers 之后的 body 超时同样归 `JsonException` | quota 测试 |
 | 数值精度 | 超过 2^53 的 JSON 整数字面量：TS 用 token 走 `BigInt` 保持精确；`as_f64` 侧与 Rust 同为 double，无额外偏差 | — |
 
 ### 22.3 设置与系统集成（对应 18.1 / 18.2 / 18.3）
@@ -622,11 +622,12 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - 整屏底色靠逐 span 合成：OpenTUI 无等价于 ratatui 整屏 `Block::bg` 的填充，未显式给 bg 的文本 run 会落到终端默认底色。故适配器把 `window_bg` 作为 base bg 合成到每个无自有 bg 的 span 上，并在每行右侧补 window_bg 空白 run 铺到满宽、行间补满宽空行铺到满高。
 - OpenTUI 实测约束：内容 write-once（变更行销毁重建）、测试渲染器无绝对定位（流式从上到下）、`resize()` 在测试渲染器崩溃（快照 `TuiLine[]` 代替）、键事件挂在 `renderer.keyInput`（`renderer.on("keypress")` 收不到）。
 - **raw mode 差异（重要）**：Bun 的 `process.stdin.setRawMode()` 在 Windows 下不改动 OS 控制台模式，且 Bun 每读一次 stdin 会把模式翻回 cooked。对策：`ts/src/tui/console.ts` 用 `bun:ffi` 直接 `SetConsoleMode`（清 `ENABLE_PROCESSED_INPUT|ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT`、置 `ENABLE_WINDOW_INPUT`；其中清 `PROCESSED_INPUT` 只为与 crossterm 对齐，**不会**让 Ctrl+C 可用，见 22.6），并在每次输入事件与每次重绘前重申 raw；退出路径还原原模式。注意输入句柄是 `(HANDLE)-10` = `0xfffffff6`（`0xfffffff5` 是输出句柄，M2 曾写错）；`bun:ffi` 对 `i64` 返回 `bigint`，比较前须 `Number()` 归一。
+- **sanitize 注入防线与 Node 版对齐**：OpenTUI 的 StyledText 不过滤控制字符，故外部字符串（skill 名称/描述、API 文案）进帧前统一经 `ts/src/tui/line.ts` 的 `sanitize()` 剥离——先整段剥 ANSI 序列（CSI/OSC/ESC+char），再剥残余 C0/DEL/C1 控制符，规则与顺序同 Node 版 `ansi.ts` 的 `sanitize()`；关卡设在渲染入口 `padLineToWidth`（一切 `TuiLine` 必经此处），测试含注入用例（`ts/test/line.test.ts`）。
 
 **Node 版（手写 ANSI 渲染层）**：
 
 - 渲染层为手写 ANSI（`tui/ansi.ts`、`wcwidth.ts`、`screen.ts`、`terminal.ts`），无任何第三方 TUI 库。帧模型 = `TuiLine[]`；写屏为**行级 diff**：与上一帧逐行比对，仅对变化行发 `\x1b[{row};1H` + 行内容；首帧 `\x1b[2J\x1b[H` 全清；帧首尾包 DEC 2026 同步输出（不支持的终端静默忽略私有模式）；底行不写满最后一格（防右下角 cell 触发整屏上滚，配合启动时 DECAWM 关 `\x1b[?7l` 双保险）。
-- **sanitize 是注入防线的唯一关卡**：没有 widget 级免疫，一切外部字符串（skill 名称/描述、API 文案）进帧前过 `sanitize()`（先整段剥 ANSI 序列 CSI/OSC，再剥残余控制符）；测试含注入用例。
+- **sanitize 是注入防线的唯一关卡**：没有 widget 级免疫，一切外部字符串（skill 名称/描述、API 文案）进帧前过 `sanitize()`（先整段剥 ANSI 序列——CSI 与 OSC/DCS/SOS/PM/APC 字符串序列，后者缺终止符时剥到输入末尾——再剥残余控制符）；测试含注入用例。
 - wcwidth 为内嵌码点区间表（`tui/wcwidth.ts`），不引 npm 包。
 - raw mode 与 VT 输入/输出模式由 Node 在 TTY 上自动处理（`ENABLE_VIRTUAL_TERMINAL_PROCESSING` / `ENABLE_VIRTUAL_TERMINAL_INPUT`），无需 Win32 调用；但恢复处理器必须在终端初始化**之前**注册（对齐 Rust panic hook 先于终端初始化），且 `createTerminal()` 自身对 ENTER 之后的步骤做 try/catch——失败先写 LEAVE 再抛。
 - **250 ms 心跳定时器不可 `unref`**：Node 中 pending promise 不保活事件循环，非 TTY stdin 也不持有句柄——该定时器是事件循环的保活锚点，退出时由统一销毁路径清除。Rust/Bun 版无此约束。
@@ -638,3 +639,4 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - **Bun 版缩窗与 Rust 同判据**：`bun:ffi` 调 `kernel32!GetConsoleProcessList` 可用，按「附加到本控制台的进程数恰好为 1」判定独占；环境变量启发式只在 FFI 不可用时兜底；`stdout` 非 TTY 时一律不缩。两条缩窗通道与 Rust 同名同序（(a) `ESC [ 8 ; 13 ; 72 t`；(b) conhost Win32 序列），差别只在传参方式：`COORD`/`SMALL_RECT` 按值传参，bun:ffi 无结构体参数，故按 x64 调用约定手工打包进整数寄存器（`COORD = (y<<16)|x`，`SMALL_RECT` 四个 i16 依次占 0/16/32/48 位）。
 - **Node 版缩窗为环境变量启发式**：无 Win32 binding，`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` 任一存在 → 共享终端，绝不缩窗；三者全缺 → 进入 alternate screen 之前向 stdout 发 `ESC[8;13;72t`（异常静默吞掉）。**实测结论（2026-09-20，WT 1.24 / conhost，经 Start-Process 新窗口 + 回读 `stdout.columns` 探针）**：当前 ConPTY 不透传窗口操作转义——CSI 8、CSI 4（像素）、`mode con` 三条通道均不生效，该序列在本机为优雅 no-op，窗口保持默认尺寸；未来 ConPTY 若转发窗口操作则自动生效。
 - **Bun 版 Ctrl+C 不能退出（实测 2026-09-20，WT 1.24 / conhost）**：`ts/src/tui/console.ts` 清 `ENABLE_PROCESSED_INPUT` 是为与 crossterm 对齐（同时让 Ctrl+B/Ctrl+H 以字节送达），但 Bun 运行时下 Ctrl+C **既不作为按键送达、也不作为 JS SIGINT 送达**，置位/清零两条路都实测过：裸 bun 进程（不改 console mode、不注册 handler、不读 stdin）对 Ctrl+C 无反应；同一窗口、同一注入方式下 Rust 版（crossterm）正常退出；OpenTUI 解析器对 `0x03` 能正确产出 `{name:"c",ctrl:true}`（`ts/scripts/verify/parse-ctrlc.ts`）。可见事件被 Bun 侧吞掉。故 **Bun 版的退出键以 `q` 为准**；`app.ts` 的 SIGINT/SIGBREAK handler 与 `handleKey` 的 ctrl+c 分支保留（当前不改变行为，运行时若修复即自动生效）。复现脚本见 `ts/scripts/verify/`。
+- **Bun 版路由忽略一切 Ctrl 组合键（除 Ctrl+C 退出外）**：`handleKey` 在 `q`/Ctrl+C 判定之后、视图分发之前 `if (key.ctrl) return`，故 Ctrl+R 等组合键不触发对应动作；Rust 版按键分发只看 `KeyCode` 不看 modifiers（带 CONTROL 的 `Char('r')` 仍命中刷新分支，见 `rust/src/app.rs:236-243`）。属刻意保留的已知偏差，由 `ts/test/appRouting.test.ts` 钉死。

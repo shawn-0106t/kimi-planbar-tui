@@ -50,7 +50,7 @@ Data contract shared with the tray edition: same credential chain, same `setting
 ├── ts-nodejs/                  # TS edition (Node): Node 24 + handwritten ANSI, same SPEC contract, independent version
 │   ├── package.json            # scripts: dev / test / typecheck / parity / selfcheck:* / build:exe; name kimi-planbar-tui-ts-nodejs
 │   ├── src/core/               # the same 10 modules, ported from ts/src/core (only 3 Bun.* call sites de-Bun'd);
-│   │                           # does NOT yet carry the 2026-09-20 M1 core fixes — see SPEC 22.2's qualifier
+│   │                           # the 2026-09-20 M1 core fixes are now ported too (see SPEC 22.2's status note)
 │   ├── src/tui/                # handwritten ANSI layer: ansi, wcwidth, screen, terminal + views (dashboard, settingsView, skillsView, app)
 │   ├── src/main.ts             # entry; --test-fetch / --test-update before anything else
 │   ├── scripts/                # run-tests.mjs (TZ pin), run-parity.mjs, build-sea.mjs, verify/ (WT window probing helpers)

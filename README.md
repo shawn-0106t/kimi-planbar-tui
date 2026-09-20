@@ -6,7 +6,7 @@ A terminal-resident dashboard that keeps your [Kimi Code](https://www.kimi.com/c
 
 ## Screenshot
 
-> Placeholder — real screenshots will be added once the UI lands. The dashboard layout:
+The dashboard layout:
 
 ```
 Kimi Planbar TUI                                    Updated 14:32

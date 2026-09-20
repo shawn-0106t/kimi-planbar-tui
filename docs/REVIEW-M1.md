@@ -1,5 +1,7 @@
 # M1 代码审查清单（TS core 层）
 
+> **归档声明**：本清单为 2026-09-20 M1 审查的历史档案。所列 5 个 Major + 7 个 Minor 已全部关闭，且全部修复已平移至 `ts-nodejs/`（见 SPEC 22.2 状态段）。文中 `file:line` 为修复当时的快照，可能随后续改动漂移；TS 版差异的最新登记以 `docs/SPEC.md` 第 22 章为准。
+
 > 审查对象：commit `b0e168c..13d37e4` 引入的 `ts/src/core/*`、`ts/src/main.ts`、`ts/test/*`。
 > 方法：两个独立 code-reviewer subagent 各审一轮（① 1:1 parity 正确性 ② 安全与健壮性），只读、以证伪为导向，两边都自行重跑了验收命令。
 > 结论：**无 Blocker**；5 个 Major、7 个 Minor。
