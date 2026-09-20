@@ -8,7 +8,7 @@
 - **路线已定：Bun + OpenTUI**（`docs/TS-EDITION-PLAN.md` §1 已记二次确认）。
   `docs/TS-EDITION-PLAN-NODEJS.md` 是同日起草的**未采纳备选存档**，不要当生效方案读。
 - **已完成**：S0 OpenTUI 能力冒烟（GO）→ M1 core 十模块 + 177 个 `bun:test` 用例 + 无头自检 `--test-fetch` / `--test-update` + 与 Rust 版跨版本字节级 parity。
-- **未完成**：M1 的独立 code review（今天中断）；M2 渲染层；`ts/` 目前**没有 `node_modules` 与 `bun.lockb`**（`@opentui/core` 按计划到 M2.1 才 `bun add`）。
+- **未完成**：M1 审查发现的 5 个 Major + 7 个 Minor **尚未修**（用户决定：等 M2 完整构建后再修，修复原则「能对齐 Rust 的全对齐 Rust」）。清单见 `docs/REVIEW-M1.md`。
 
 ## 2. 三条验收命令（当前全绿，明天开工先跑一遍确认环境没变）
 
@@ -32,11 +32,16 @@ bun run selfcheck:fetch
 
 ## 4. 明天开工前三步
 
-1. **先补 code review 再动 M2**：派 code-reviewer 审 M1，两个视角各一轮——① 1:1 parity 正确性（含"测试是否真在断言"）② 安全与健壮性（凭证泄漏面、spawn 参数、不受信 JSON/SKILL.md）。今天这两轮被中断，等于 M1 还没过验收闸门。
-2. `cd ts && bun add @opentui/core`（0.5.11 已验证 win32-x64 可装可跑）→ 首次产生 `node_modules/` 与 `bun.lockb`；`.gitignore` 已覆盖 `node_modules/` 与 `ts/dist/`，`bun.lockb` 建议提交。
+1. **M1 审查已完成**（两个视角各一轮，审查者自行重跑过验收）：结论无 Blocker，5 Major + 7 Minor 记在 `docs/REVIEW-M1.md`，其中 Major A（`refreshMinutes` 过大致 `setTimeout` 溢出 → 带 token 热循环）与 B（skills 整文件读入，违背 4 KiB 上限）建议优先。按约定**等 M2 完整构建后**再修，修的时候能对齐 Rust 的全对齐 Rust，对不齐的补进 `docs/SPEC-TS-DIFF.md`。
+2. `cd ts && bun add @opentui/core`（0.5.11 已验证 win32-x64 可装可跑）→ 若并行会话已做过则跳过；`bun.lock` 建议提交。
 3. 按 §2.6 的 4 条陷阱先定 `ts/src/tui/line.ts`（`Line[]` 纯模型）与 `ts/src/tui/renderer.ts`（OpenTUI 适配器 / 兜底 ANSI painter）的边界，再写 dashboard 纯视图 + 行快照测试，**最后**才接真渲染器到 Windows Terminal 里人工对照 SPEC 11/12 双主题。
 
-## 5. 待你决定的杂项
+## 5. 并行工作与工作树边界
+
+- 2026-09-19 深夜，同一工作树里另有**并行推进的未提交改动**（用户另一窗口）：`ts/src/tui/{line,renderer,dashboard,app}.ts` + `ts/test/{dashboard,renderer}.test.ts` + `ts/bun.lock` + `ts/package.json` / `ts/src/main.ts` 的修改（M2 雏形），以及整棵 `ts-nodejs/`（Node.js 备选路线的平行实现）。本会话（M1）**只提交到 `ts/src/core/*`、`ts/src/main.ts`、`ts/test/*`（M1 那批）与 docs**，没有碰上述任何文件。
+- 修 M1 清单时同理：只动 `ts/src/core/*` 与 M1 的测试文件，逐项 `git add <具体路径>`，不要用 `git add -A`，以免把并行 WIP 一起提交。
+
+## 6. 待你决定的杂项
 
 - `docs/TS-EDITION-PLAN-NODEJS.md` 头部现在写着「取代同文件上一版的 OpenTUI 路线」，与已定路线冲突。建议加一行「未采纳，仅存档」的更正——按 AGENTS.md 规矩，改既有文件前先问你，**未得许可前谁都不要动它**。
 - 本机 Kimi token 时效很短（今晚半小时内从有效变回过期）。token 有效时 `--test-fetch` 走**真实成功路径**、证据强度最高；过期时两版都只输出 `no-token` 分支。想复现成功路径 diff，先 `kimi login`（或跑一次 `kimi`）再 `bun run parity`。
