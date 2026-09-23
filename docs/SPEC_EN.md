@@ -4,13 +4,13 @@
 >
 > This document is the project's **single authoritative specification** (single source of truth), in two parts:
 > - **Part 1 — Project specification** (chapters 1–9): goals, architecture, data flow, security, build & release, maintenance boundaries
-> - **Part 2 — UI & behavior specification** (chapters 10–22): colors, layout, API parsing, persistence, and every numeric detail; chapter 22 registers the mechanisms where each TS edition is not equivalent to Rust
+> - **Part 2 — UI & behavior specification** (chapters 10–22): colors, layout, API parsing, persistence, and every numeric detail; chapter 22 registers the mechanisms where a TS edition is not equivalent to Rust (the Bun edition is frozen; its entries are historical)
+>
+> **Edition status**: the Rust edition (`rust/`) is the maintained, recommended implementation; the Node edition (`ts-nodejs/`) is a supported alternative; the Bun + OpenTUI edition (`ts/`) is **experimental and frozen** — kept for reference only, no longer shipped in releases, no longer maintained, and may be removed at any time. The behavior contract in the rest of this document is benchmarked on the Rust edition and holds for the Node edition; entries marked Bun-only in chapter 22 are historical reference.
 >
 > Chapter numbering matches the tray edition's (kimi-planbar-tray) SPEC for cross-reference; **chapter 10 (window spec), chapter 14 (tray behavior), and chapter 15 (animations) do not apply to the TUI edition** and are short stubs explaining why. Where content is identical to the tray edition, the contract is restated in full — this document stands alone and does not depend on the tray edition's SPEC.
 >
 > `SPEC x.y` citations in code comments refer to chapter numbers in this document; check the corresponding Part 2 chapter before changing behavior, and update the chapter whenever behavior changes.
->
-> TS-edition implementation deltas (Bun + OpenTUI in `ts/`, Node 24 + handwritten ANSI in `ts-nodejs/`) are registered in chapter 22 of this document, filed under its chapter numbers.
 
 ---
 
@@ -52,17 +52,18 @@ A terminal-resident dashboard for Windows (no tray, no windows, no animations) t
 
 ### 3.1 Repository structure
 
-Monorepo layout (mirroring the tray edition's kimi-planbar-tray): the Rust crate lives in `rust/` (not a workspace); the TS edition has two parallel implementations — Bun + OpenTUI in `ts/`, Node 24 + handwritten ANSI in `ts-nodejs/` — and all three editions share this behavior contract:
+Monorepo layout (mirroring the tray edition's kimi-planbar-tray): the Rust crate lives in `rust/` (not a workspace); the TS edition has two parallel implementations — Bun + OpenTUI in `ts/` (**experimental and frozen, reference only**) and Node 24 + handwritten ANSI in `ts-nodejs/` (supported). Maintenance: the Rust and Node editions are the current implementations; the Bun edition is no longer shipped or maintained. Historically all three shared this behavior contract:
 
 - `rust/Cargo.toml` / `rust/Cargo.lock` — package and binary name are both `kimi-planbar-tui`
 - `rust/src/` — backend core modules (ported from the tray edition's `rust/src-tauri/src/` with Tauri removed) + `rust/src/format.rs` (formatting helpers ported from the tray frontend's `src/common.ts`) + `rust/src/app.rs` and `rust/src/ui/` (all-new code: event loop and ratatui view layer)
 - `ts/package.json` / `ts/tsconfig.json` — package name `kimi-planbar-tui-ts`, independent version starting at 0.1.0
 - `ts/src/core/` — the ten core modules behaving 1:1 with the Rust core (credentials, quota, polling, settings, skills, update, format, theme, state, strict JSON); importing any `@opentui` symbol there is forbidden
 - `ts/src/tui/` — the OpenTUI render layer (line / dashboard / settingsView / skillsView / renderer / app / console / shrink), strictly separated from core so it can be replaced wholesale
+- `ts/README.md` — frozen/experimental notice for this directory (reference only, not shipped, no longer maintained)
 - `ts-nodejs/package.json` — package name `kimi-planbar-tui-ts-nodejs`, independent version starting at 0.1.0
 - `ts-nodejs/src/core/` — the same ten modules ported from `ts/src/core/` (only three `Bun.*` call sites replaced with `node:child_process`; everything else byte-identical)
 - `ts-nodejs/src/tui/` — the handwritten-ANSI render layer (ansi / wcwidth / screen / terminal) plus the views (dashboard / settingsView / skillsView / app); no TUI library at all
-- `docs/` — this specification (`SPEC.md` / `SPEC_EN.md`), shared by all three editions; **the mechanisms where either TS edition is not equivalent to the Rust edition are registered in chapter 22**, filed by this document's chapter numbers
+- `docs/` — this specification (`SPEC.md` / `SPEC_EN.md`), shared by the Rust and Node editions (the frozen Bun edition's entries are historical); **the mechanisms where a TS edition is not equivalent to the Rust edition are registered in chapter 22**, filed by this document's chapter numbers
 - Root: `AGENTS.md`, `README.md`, `README_CN.md`, `LICENSE`, `NOTICE`
 
 ### 3.2 Process and view model
@@ -166,7 +167,18 @@ Terminal requirements: **Windows Terminal / VS Code integrated terminal are the 
 
 The release exe embeds a Windows VERSIONINFO resource and the app icon via `rust/build.rs` (`winresource` build-dependency, `rust/assets/icon.ico` — the Kimi logo, attribution in NOTICE): FileDescription / ProductName / CompanyName / LegalCopyright / Comments are fixed strings, while FileVersion/ProductVersion are taken automatically from `CARGO_PKG_VERSION` — **`rust/Cargo.toml` stays the single version source**. An embedding failure only emits `cargo:warning` and never fails the build (machines without the Windows SDK rc.exe still compile; the exe simply lacks metadata).
 
-The **TS edition** (prerequisites: Windows + Bun ≥ 1.3, no Cargo involved):
+**TS edition (Node, supported)** (prerequisites: Windows + Node.js ≥ 24.6; no Bun, no Cargo):
+
+```bash
+cd ts-nodejs
+npm install
+npm run dev          # dev run (node ... src/main.ts)
+npm run build:exe    # SEA single-file exe → ts-nodejs/dist/kpt-tui-node.exe (embeds the Node runtime, ~88.7 MB)
+```
+
+`ts-nodejs/dist/` is gitignored; binaries never enter the repository. As with the Rust build, run the exe in a modern terminal (baseline: Windows Terminal / the VS Code integrated terminal).
+
+The **TS edition (Bun, frozen)** (prerequisites: Windows + Bun ≥ 1.3, no Cargo involved) — not recommended and no longer shipped in releases; kept for reference only:
 
 ```bash
 cd ts
@@ -175,13 +187,13 @@ bun run dev          # dev run (bun ... src/main.ts)
 bun run build:exe    # single-file exe → ts/dist/kpt-tui.exe (embeds the Bun runtime, ~90 MB)
 ```
 
-The same terminal baseline applies. `ts/dist/` is gitignored; binaries never enter the repository.
+The same terminal baseline applies. `ts/dist/` is gitignored; binaries never enter the repository. This directory is no longer maintained (no fixes, no features) and may be removed at any time; the commands above are kept for reference.
 
 ### 7.2 Testing
 
 - `cargo test`: skills frontmatter parser unit tests (ported from the tray edition) + quota JSON parsing unit tests (mixed string/number fields, `isEnabled=false`, unit rounding, divide-by-zero) — the first real parsing test suite in the project family
-- **TS edition (Bun)**: `cd ts && bun run test` (`bun:test`, cases ported 1:1 from the Rust unit tests plus exact-equality assertions against Rust oracle goldens; the script pins the timezone to `Asia/Shanghai` — plain `bun test` breaks the goldens). Cross-edition consistency: `bun run parity` diffs both headless self-checks against the local Rust exe back to back, and `bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` does the same for the compiled build. Method and exemptions: §22.1
 - **TS edition (Node)**: `cd ts-nodejs && npm test` (`node:test` plus the bundled `bun-shim`; same cases as the Bun edition; TZ pinned by `scripts/run-tests.mjs`). `npm run parity` and `node test/parity/diff.ts --ts-exe dist/kpt-tui-node.exe` mirror the above; `npm run typecheck` must stay at 0 errors. Same golden set and back-to-back method (§22.1)
+- **TS edition (Bun, frozen)**: kept for reference only — this edition is no longer maintained and its test results are not a release gate. `cd ts && bun run test` (`bun:test`, cases ported 1:1 from the Rust unit tests plus exact-equality assertions against Rust oracle goldens; the script pins the timezone to `Asia/Shanghai` — plain `bun test` breaks the goldens). Cross-edition consistency: `bun run parity` diffs both headless self-checks against the local Rust exe back to back, and `bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` does the same for the compiled build. Method and exemptions: §22.1
 - Headless self-checks (details in chapter 19): `--test-fetch` / `--test-update`; with no mutex they naturally coexist with running instances
 - Consistency check: run `--test-fetch` back to back with the tray edition on the same machine and diff the JSON field by field
 - Visual check: manually compare against chapters 11/12 in Windows Terminal under both themes
@@ -189,10 +201,11 @@ The same terminal baseline applies. `ts/dist/` is gitignored; binaries never ent
 
 ### 7.3 Release
 
-1. Version bump: `rust/Cargo.toml` (currently the only version source; sync any packaging script if one is added later)
+1. Version bump: `rust/Cargo.toml` is the only version source for the Rust exe; the Node edition bumps independently in `ts-nodejs/package.json` (the frozen Bun edition does not bump)
 2. `cd rust && cargo build --release` produces the single exe
 3. Upload to GitHub Releases manually; **do not commit binaries** (release artifacts are gitignored)
 4. Versioning is independent of the tray edition (kimi-planbar-tray) and starts at 0.1.0
+5. TS artifacts: only the Node SEA build `kpt-tui-node.exe` is published; the Bun `ts/dist/kpt-tui.exe` no longer enters Releases (its v0.1.1 asset is a historical leftover and is not updated)
 
 ## 8. Runtime requirements
 
@@ -205,6 +218,7 @@ The same terminal baseline applies. `ts/dist/` is gitignored; binaries never ent
 
 - This repo is maintained independently; it shares only the data contract with the tray edition (credential chain, settings.json schema, API parsing rules). When behavior is ambiguous, Part 2 of this document is the contract
 - Core modules stay behaviorally identical to the tray edition's `rust/src-tauri/src/`; the tray repo is the reference implementation
+- **Edition maintenance boundary**: the supported implementations are the Rust edition (`rust/`) and the Node edition (`ts-nodejs/`). The `ts/` edition (Bun + OpenTUI) is frozen — retained for reference only, no longer shipped in releases, no new features or bug fixes accepted, and removable at any time; mechanisms described as Bun-edition-specific in chapter 22 and in the body chapters (e.g. chapter 20's "TS edition (Bun) — same criteria and channels", the Bun sub-entry in §22.4) are historical from the freeze onward and no longer imply maintenance commitments.
 
 | Document | Role |
 |---|---|
@@ -568,7 +582,9 @@ Self-check modes print to stdout and exit. This edition has **no single-instance
 
 ## 22. TS-edition implementation deltas
 
-> This chapter is the register of every mechanism where a TS edition — the Bun edition (`ts/`, Bun + OpenTUI) or the Node edition (`ts-nodejs/`, Node 24 + handwritten ANSI) — is not mechanically equivalent to the Rust edition, filed by this document's chapter numbers. The behavior contract in the preceding chapters is benchmarked on the Rust edition; every entry here is an implementation-level equivalence or a known deviation, all pinned by tests.
+> This chapter is the register of every mechanism where a TS edition — the Bun edition (`ts/`, Bun + OpenTUI) or the Node edition (`ts-nodejs/`, Node 24 + handwritten ANSI) — is not mechanically equivalent to the Rust edition, filed by this document's chapter numbers. The behavior contract in the preceding chapters is benchmarked on the Rust edition; every entry here is an implementation-level equivalence or a known deviation — the Rust/Node-related entries are pinned by tests, while the Bun-edition entries are a historical record frozen with that edition and no longer evolve with the code.
+>
+> **Status**: the Bun edition (`ts/`) is **frozen** — retained for reference only, no longer shipped or maintained; entries marked Bun-only in this chapter are historical, and the current implementations are the Rust and Node editions.
 
 ### 22.1 Verification method (maps to 7.2 / 19)
 
@@ -618,7 +634,7 @@ Both TS editions share one origin (the Node edition is ported from the Bun one),
 - Underline: for the selected interval row (SPEC 13.2) Rust adds `Modifier::UNDERLINED`; the Bun edition uses OpenTUI's `underline()` style, the Node edition emits SGR 4 directly.
 - The skills scan runs on the next macrotask: a `Scanning...` frame paints first, then the scan runs — the counterpart of Rust's `spawn_blocking` + mpsc; a synchronous scan would stall redraws. The settings-save `reg.exe` autostart write stays synchronous (SPEC 13.2's save order requires it to finish first).
 
-**Bun edition (OpenTUI render layer)**:
+**Bun edition (OpenTUI render layer — frozen, historical reference)**:
 
 - Selection text: Rust goes through crossterm `Color::White` → SGR `37` (terminal-palette white), while OpenTUI's `"white"` resolves to `#FFFFFF`. The difference is only visible with a customized terminal palette.
 - The screen background is composed per span: OpenTUI has no equivalent of ratatui's whole-screen `Block::bg`, and a text run without an explicit bg falls through to the terminal default. The adapter therefore merges `window_bg` as the base bg into every span without its own, pads each row to full width with a `window_bg` run, and fills vertical gaps with full-width blank rows.

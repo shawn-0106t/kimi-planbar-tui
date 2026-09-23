@@ -4,7 +4,9 @@
 >
 > 本文档是整个项目的**唯一权威规格**（single source of truth），分两篇：
 > - **第一篇 项目规格**（第 1–9 章）：目标、架构、数据流、安全、构建发布、维护边界
-> - **第二篇 UI 与行为规格**（第 10–22 章）：配色、布局、API 解析、持久化等全部数值细则；第 22 章登记两个 TS 版与 Rust 版不等价的实现机制
+> - **第二篇 UI 与行为规格**（第 10–22 章）：配色、布局、API 解析、持久化等全部数值细则；第 22 章登记 TS 版与 Rust 版不等价的实现机制（Bun 版已冻结，其条目转为历史登记）
+>
+> **版本状态**：`rust/`（Rust 版）为持续维护的推荐实现；`ts-nodejs/`（Node 版）为受支持的替代实现；`ts/`（Bun + OpenTUI 版）**仅实验性质且已冻结**——只为留档保留，不再随 Releases 发布、不再维护，随时可能移除。本规格其余章节描述的行为契约以 Rust 版为基准，对 Node 版同样成立；第 22 章标注 Bun 版专有的条目仅作历史参考。
 >
 > 章节编号与托盘版（kimi-planbar-tray）的 SPEC 保持一致，便于交叉对照；其中 **第 10 章（窗口规格）、第 14 章（托盘行为）、第 15 章（动画）对 TUI 版不适用**，以短章声明原因。其余章节内容相同的，本文档仍完整重述契约——本文档可独立成立，不依赖托盘版 SPEC。
 >
@@ -50,17 +52,18 @@ Windows 终端常驻仪表盘（无托盘、无窗口、无动画），让 Kimi 
 
 ### 3.1 仓库结构
 
-Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版有两个并行实现——Bun + OpenTUI 版位于 `ts/`，Node 24 + 手写 ANSI 版位于 `ts-nodejs/`，三者共享同一行为契约（本规格）：
+Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版有两个并行实现——Bun + OpenTUI 版位于 `ts/`（**实验性、已冻结，仅留档**），Node 24 + 手写 ANSI 版位于 `ts-nodejs/`（受支持）。维护口径：Rust 版与 Node 版为现行实现，Bun 版不再发布、不再维护；三者历史上共享同一行为契约（本规格）：
 
 - `rust/Cargo.toml` / `rust/Cargo.lock` — 包名与二进制名均为 `kimi-planbar-tui`
 - `rust/src/` — 后端 core 模块（自托盘版 `rust/src-tauri/src/` 去 Tauri 化移植）+ `rust/src/format.rs`（格式化 helper，移植自托盘版前端 `src/common.ts`）+ `rust/src/app.rs` 与 `rust/src/ui/`（全新代码：事件循环与 ratatui 视图层）
 - `ts/package.json` / `ts/tsconfig.json` — 包名 `kimi-planbar-tui-ts`，版本独立从 0.1.0 起步
 - `ts/src/core/` — 与 Rust core 行为 1:1 的十个模块（凭证链、quota、polling、settings、skills、update、format、theme、state、严格 JSON）；禁止 import 任何 `@opentui` 符号
 - `ts/src/tui/` — OpenTUI 渲染层（line / dashboard / settingsView / skillsView / renderer / app / console / shrink），与 core 严格分层，可整体替换
+- `ts/README.md` — 本目录冻结说明：实验性、不再随 Releases 发布、不再维护（供直接进入 `ts/` 的人与 AI agent 参考）
 - `ts-nodejs/package.json` — 包名 `kimi-planbar-tui-ts-nodejs`，版本独立从 0.1.0 起步
 - `ts-nodejs/src/core/` — 自 `ts/src/core/` 平移的同一套十个模块（仅把 3 处 `Bun.*` 调用换成 `node:child_process`，其余逐字节一致）
 - `ts-nodejs/src/tui/` — 手写 ANSI 渲染层（ansi / wcwidth / screen / terminal）+ 视图（dashboard / settingsView / skillsView / app），无任何 TUI 库
-- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）三版共享；**两个 TS 版与 Rust 版不等价的实现机制统一登记在第 22 章**，按本规格章节号归档
+- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）由 Rust 版与 Node 版共享（已冻结的 Bun 版条目转为历史登记）；**TS 版与 Rust 版不等价的实现机制统一登记在第 22 章**，按本规格章节号归档
 - 根目录：`AGENTS.md`、`README.md`、`README_CN.md`、`LICENSE`、`NOTICE`
 
 ### 3.2 进程与视图模型
@@ -164,7 +167,18 @@ cargo run               # 开发运行（debug 构建可直接用——没有内
 
 release exe 由 `rust/build.rs`（`winresource` build-dependency）嵌入 Windows VERSIONINFO 资源与应用图标 `rust/assets/icon.ico`（Kimi logo，归属声明见 NOTICE）：FileDescription / ProductName / CompanyName / LegalCopyright / Comments 为固定字符串，FileVersion/ProductVersion 自动取自 `CARGO_PKG_VERSION`——**版本号唯一来源仍是 `rust/Cargo.toml`**。嵌入失败只输出 `cargo:warning`，不使构建失败（无 Windows SDK rc.exe 的机器也能正常编译，只是 exe 缺元数据）。
 
-**TS 版**（前提：Windows + Bun ≥ 1.3，无 Cargo 依赖）：
+**TS 版（Node，受支持）**（前提：Windows + Node.js ≥ 24.6，无 Bun、无 Cargo 依赖）：
+
+```bash
+cd ts-nodejs
+npm install
+npm run dev          # 开发运行（node ... src/main.ts）
+npm run build:exe    # SEA 单文件 exe → ts-nodejs/dist/kpt-tui-node.exe（内嵌 Node 运行时，~88.7 MB）
+```
+
+`ts-nodejs/dist/` 已 gitignore，不分发进仓库；产物与 Rust 版一样需在现代终端（基准：Windows Terminal / VS Code 集成终端）中运行。
+
+**TS 版（Bun，已冻结）**（前提：Windows + Bun ≥ 1.3，无 Cargo 依赖）——不推荐、不再随 Releases 发布，仅为留档保留：
 
 ```bash
 cd ts
@@ -173,13 +187,13 @@ bun run dev          # 开发运行（bun ... src/main.ts）
 bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行时，~90 MB）
 ```
 
-产物同样受"终端要求"约束（Windows Terminal / VS Code 集成终端为基准）。`ts/dist/` 已 gitignore，不分发进仓库。
+产物同样受"终端要求"约束（Windows Terminal / VS Code 集成终端为基准）。`ts/dist/` 已 gitignore，不分发进仓库。该目录不再维护（不修 bug、不加功能），随时可能移除；以上命令仅作留档。
 
 ### 7.2 测试
 
 - `cargo test`：skills frontmatter 解析单测（自托盘版移植）+ quota JSON 解析单测（字符串/数字混排、`isEnabled=false`、单位四舍五入、除零）——本项目族首个真正的解析测试套件
-- **TS 版（Bun）**：`cd ts && bun run test`（`bun:test`，用例对照 `rust/src/` 单测 1:1 移植，并额外对 Rust oracle golden 做全等断言；时区由脚本固定为 `Asia/Shanghai`，直接 `bun test` 会因时区使 golden 失败）。跨版本一致性：`bun run parity` 与本机 Rust exe 背靠背比对两个无头自检；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 比对编译产物。验证方法与豁免项见 22.1
 - **TS 版（Node）**：`cd ts-nodejs && npm test`（`node:test` + 内置 `bun-shim`，用例与 Bun 版同源；TZ 由 `scripts/run-tests.mjs` 固定）。`npm run parity` 与 `node test/parity/diff.ts --ts-exe dist/kpt-tui-node.exe` 同上；`npm run typecheck` 保持 0 error。同一 golden 集与背靠背方法（22.1）
+- **TS 版（Bun，已冻结）**：以下命令仅为留档保留；该版不再维护，测试通过与否不作为发布门槛。`cd ts && bun run test`（`bun:test`，用例对照 `rust/src/` 单测 1:1 移植，并额外对 Rust oracle golden 做全等断言；时区由脚本固定为 `Asia/Shanghai`，直接 `bun test` 会因时区使 golden 失败）。跨版本一致性：`bun run parity` 与本机 Rust exe 背靠背比对两个无头自检；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 比对编译产物。验证方法与豁免项见 22.1
 - 无头自检（详见第 19 章）：`--test-fetch` / `--test-update`，无互斥锁，天然可与运行中实例并存
 - 一致性验证：与托盘版同机背靠背跑 `--test-fetch`，JSON 逐字段 diff
 - 视觉验证：在 Windows Terminal 双主题下人工对照第 11/12 章
@@ -187,10 +201,11 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 
 ### 7.3 发布
 
-1. 版本号同步：`rust/Cargo.toml`（目前唯一的版本号来源；后续若加打包脚本再同步）
+1. 版本号同步：Rust exe 的版本号唯一来源是 `rust/Cargo.toml`；Node 版在 `ts-nodejs/package.json` 独立升版（Bun 版已冻结，不升版）
 2. `cd rust && cargo build --release` 出单 exe
 3. 手动上传 GitHub Releases；**不要把二进制提交进仓库**（发布产物已 gitignore）
 4. 版本号独立于托盘版（kimi-planbar-tray），从 0.1.0 起步
+5. TS 版产物：Releases 只发布 Node 版 SEA 产物 `kpt-tui-node.exe`；Bun 版 `ts/dist/kpt-tui.exe` 不再进入 Releases（v0.1.1 的附件为历史遗留，不再更新）
 
 ## 8. 运行环境要求
 
@@ -203,6 +218,7 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 
 - 本仓库独立维护，与托盘版（kimi-planbar-tray）仅共享数据契约（凭证链、settings.json schema、API 解析规则）；行为歧义时以本文档第二篇为准
 - core 模块与托盘版 `rust/src-tauri/src/` 保持行为一致；托盘版仓库为参考实现
+- **版本维护边界**：受支持实现为 Rust 版（`rust/`）与 Node 版（`ts-nodejs/`）。`ts/`（Bun + OpenTUI 版）已冻结——仅留档保留，不再随 Releases 发布，不接受新功能与 bug 修复，随时可能移除；第 22 章及正文中标注为 Bun 版（`ts/`）的机制说明（如第 20 章的「TS 版（Bun）同判据同通道」、22.4 的 Bun 子条）自冻结起转为历史登记，不再构成对该版的维护承诺。
 
 | 文档 | 定位 |
 |---|---|
@@ -566,7 +582,9 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ## 22. TS 各版实现差异登记
 
-> 本章集中登记两个 TS 版——Bun 版（`ts/`，Bun + OpenTUI）与 Node 版（`ts-nodejs/`，Node 24 + 手写 ANSI）——在实现机制上与 Rust 版不等价之处，按本规格章节号归档。前述各章描述的行为契约以 Rust 版为基准；本章条目均为实现层面的等价机制或已知偏差，全部有测试锁定。
+> 本章集中登记两个 TS 版——Bun 版（`ts/`，Bun + OpenTUI）与 Node 版（`ts-nodejs/`，Node 24 + 手写 ANSI）——在实现机制上与 Rust 版不等价之处，按本规格章节号归档。前述各章描述的行为契约以 Rust 版为基准；本章条目均为实现层面的等价机制或已知偏差——Rust/Node 相关条目由测试锁定，Bun 版条目为随该版冻结的历史登记，不再随代码演进。
+>
+> **状态**：Bun 版（`ts/`）**已冻结**——仅为留档保留，不再发布、不再维护；本章标注为 Bun 版专有的条目转为历史登记，现行实现为 Rust 版与 Node 版。
 
 ### 22.1 验证方法（对应 7.2 / 19）
 
@@ -616,7 +634,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - 下划线属性：SPEC 13.2 选中 interval 行时 Rust 加 `Modifier::UNDERLINED`；Bun 版用 OpenTUI `underline()` style，Node 版直接发 SGR 4。
 - Skills 扫描放在下一个宏任务：先出 `Scanning...` 帧再异步跑扫描，对应 Rust 的 `spawn_blocking` + mpsc 回调；同步扫描会卡住重绘。设置保存的 `reg.exe` 自启写入仍同步（SPEC 13.2 的保存顺序要求它先返回）。
 
-**Bun 版（OpenTUI 渲染层）**：
+**Bun 版（OpenTUI 渲染层，已冻结，仅历史参考）**：
 
 - 选中态文字：Rust 走 crossterm `Color::White` → SGR `37`（终端调色板白），OpenTUI 的 `"white"` 解析为 `#FFFFFF`。观感差异仅在用户自定义终端白时可见。
 - 整屏底色靠逐 span 合成：OpenTUI 无等价于 ratatui 整屏 `Block::bg` 的填充，未显式给 bg 的文本 run 会落到终端默认底色。故适配器把 `window_bg` 作为 base bg 合成到每个无自有 bg 的 span 上，并在每行右侧补 window_bg 空白 run 铺到满宽、行间补满宽空行铺到满高。

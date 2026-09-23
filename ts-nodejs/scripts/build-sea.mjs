@@ -2,7 +2,7 @@
 // no `node --build-sea`, so the official multi-step flow runs here instead:
 // esbuild bundle -> sea blob -> copy node.exe -> postject inject.
 //
-// Output: dist/kpt-tui-node.exe (~90 MB, embeds the Node runtime).
+// Output: dist/kpt-tui-node.exe (~88.7 MB, embeds the Node runtime).
 // --use-system-ca is baked into execArgv so the exe trusts the machine's
 // ESET-style TLS re-signing roots (SPEC 17.2 / plan §7).
 
