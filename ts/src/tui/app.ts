@@ -288,12 +288,14 @@ export function renderFrame(
   }
 }
 
-/** Exit-path wiring (SPEC 20). Kept as a second line of defence: Bun/Windows
- *  swallows the console control event, so Ctrl+C reaches neither this handler
- *  nor the key router (SPEC 22.6) — `q` is the quit key. The handlers still
- *  cover whatever does raise a signal here (Ctrl+Break, a future runtime fix),
- *  and the guard makes the path idempotent however many arrive.
- *  Exported for the unit test — `exit` is injectable so tests never exit. */
+/** Exit-path wiring (SPEC 20). Kept as a second line of defence: whether
+ *  Ctrl+C is delivered under Bun/Windows drifts with the runtime version
+ *  (swallowed on 2026-09-20, delivered on Bun 1.4.2 per the 2026-09-25
+ *  re-measurement — SPEC 22.6), so `q` remains the quit key and these
+ *  handlers cover whatever does raise a signal here (Ctrl+Break, either
+ *  Ctrl+C path), with the guard making the path idempotent however many
+ *  arrive. Exported for the unit test — `exit` is injectable so tests never
+ *  exit. */
 export function registerExitHandlers(
   destroy: () => void,
   exit: (code: number) => void = (code) => process.exit(code),
@@ -323,12 +325,14 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
   const state: AppState = createAppState(settings, eff);
   const app = createUiApp();
 
-  const renderer = await makeRenderer();
-  // OpenTUI's setupTerminal guards raw mode behind `if (stdin.setRawMode)`,
-  // but Bun/Windows setRawMode is a no-op for the OS console mode, so the
-  // console stays cooked and keys echo. Set raw mode ourselves AFTER the
-  // renderer init so we are the last to touch the console mode (SPEC 20).
-  const restoreConsole = enterRawMode();
+  // A stranded terminal is the worst TUI bug (SPEC 20): the restore handlers
+  // are installed BEFORE terminal init — if createCliRenderer throws mid-setup
+  // there is still a path out, mirroring the Rust panic hook that
+  // rust/src/app.rs mounts before its terminal init. The renderer and the
+  // raw-mode restore may not exist yet when a handler fires, so every step
+  // tolerates absence.
+  let liveRenderer: TuiRenderer | null = null;
+  let restoreConsole: (() => void) | null = null;
   let destroyed = false;
   const destroyRenderer = (): void => {
     if (destroyed) return;
@@ -336,13 +340,11 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
     // A renderer.destroy() throw must not skip the console restore — every
     // exit path restores the terminal (SPEC 20).
     try {
-      renderer.destroy();
+      liveRenderer?.destroy();
     } finally {
-      restoreConsole();
+      restoreConsole?.();
     }
   };
-  // A stranded terminal is the worst TUI bug (SPEC 20): restore before exit
-  // on every path the loop does not control.
   process.on("uncaughtException", (err) => {
     destroyRenderer();
     console.error(err);
@@ -354,6 +356,14 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
     process.exit(1);
   });
   registerExitHandlers(destroyRenderer);
+
+  const renderer = await makeRenderer();
+  liveRenderer = renderer;
+  // OpenTUI's setupTerminal guards raw mode behind `if (stdin.setRawMode)`,
+  // but Bun/Windows setRawMode is a no-op for the OS console mode, so the
+  // console stays cooked and keys echo. Set raw mode ourselves AFTER the
+  // renderer init so we are the last to touch the console mode (SPEC 20).
+  restoreConsole = enterRawMode();
 
   const draw = (): void => {
     if (destroyed) return;

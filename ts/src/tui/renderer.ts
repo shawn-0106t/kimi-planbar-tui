@@ -133,7 +133,11 @@ class OpenTuiRenderer implements TuiRenderer {
 export async function createTuiRenderer(): Promise<TuiRenderer> {
   // exitOnCtrlC off: the app owns every quit path so the terminal is always
   // restored through renderer.destroy() (SPEC 20).
-  const renderer = await createCliRenderer({ exitOnCtrlC: false });
+  // useMouse off: OpenTUI defaults it to true and then enables ?1000/?1002/
+  // ?1003/?1006 tracking, which hijacks the mouse (no select/copy in a real
+  // terminal) and feeds an event stream nothing consumes — the app is a
+  // read-only keyboard dashboard, SPEC 12.7 defines no mouse at all.
+  const renderer = await createCliRenderer({ exitOnCtrlC: false, useMouse: false });
   return wrapCliRenderer(renderer);
 }
 

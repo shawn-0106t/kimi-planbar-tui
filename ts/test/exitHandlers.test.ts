@@ -1,8 +1,9 @@
-// Exit-path wiring (SPEC 20 / 22.6). Under Bun/Windows Ctrl+C reaches neither
-// the key router nor these handlers — the runtime swallows the console control
-// event — so `q` is the quit key for this edition. The handlers stay as the
-// teardown for whatever does raise a signal here, and the guard keeps that path
-// idempotent; a missed call would strand the terminal.
+// Exit-path wiring (SPEC 20 / 22.6). Whether Ctrl+C reaches the key router or
+// these handlers drifts with the Bun runtime version (swallowed on 2026-09-20,
+// delivered on Bun 1.4.2 per the 2026-09-25 re-measurement) — `q` stays the
+// quit key for this edition. The handlers remain the teardown for whatever
+// raises a signal here, and the guard keeps that path idempotent; a missed
+// call would strand the terminal.
 
 import { afterAll, describe, expect, test } from "bun:test";
 import { registerExitHandlers } from "../src/tui/app.ts";

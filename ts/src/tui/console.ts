@@ -12,10 +12,10 @@
 //
 // Raw mode = clear ENABLE_PROCESSED_INPUT (0x1) + ENABLE_LINE_INPUT (0x2) +
 // ENABLE_ECHO_INPUT (0x4), ensure ENABLE_WINDOW_INPUT (0x8). PROCESSED_INPUT is
-// cleared for crossterm parity (it also keeps Ctrl+B/Ctrl+H as bytes), but that
-// does NOT buy a working Ctrl+C: measured 2026-09-20 under Bun/Windows, the key
-// reaches the app neither as a keypress nor as a JS SIGINT, whichever way the
-// flag is set — see SPEC 22.6, and `q` is the quit key.
+// cleared for crossterm parity (it also keeps Ctrl+B/Ctrl+H as bytes); whether
+// Ctrl+C is delivered is decided by the Bun runtime itself — measured 2026-09-20
+// as fully swallowed, re-measured 2026-09-25 on Bun 1.4.2 as quitting cleanly —
+// see SPEC 22.6; `q` remains the quit key.
 // All FFI failures are swallowed (SPEC 20).
 
 import { dlopen, FFIType, ptr } from "bun:ffi";
