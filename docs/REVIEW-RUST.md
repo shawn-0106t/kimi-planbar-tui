@@ -2,7 +2,7 @@
 
 > 审查对象：commit `53d519d`（2026-09-25）时的 `rust/src/` 全部 14 个源文件、`rust/src/ui/` 三视图、`rust/build.rs`、`rust/Cargo.toml` 及内嵌单元测试。
 > 方法：独立 code-reviewer subagent 一轮（只读、以证伪为导向，假设至少存在 2 处缺陷），自行重跑验收命令并对 vendored 依赖源码取证。
-> 结论：**无 Blocker**；1 个 Major、5 个 Minor、3 个 Suggestion。
+> 结论：**无 Blocker**；1 个 Major、5 个 Minor、5 个 Suggestion（9–10 为 2026-09-25 复核新增，见文末"复核记录"）。
 > 验收基线（审查时实测）：`cargo test` **15/15 通过**；`--test-fetch` 返回真实 19 行数据（当时 token 有效）；`--test-update` `local=2.1.1 latest=2.1.1 updateAvailable=False checkFailed=False`。
 > 依赖取证基线：windows-0.61.3 / crossterm-0.28.1 / ratatui-0.29.0 / tokio-1.53.1。`cargo clippy` 未运行（本机 toolchain 未装该组件）。
 > **修复时机：待维护者拍板**（建议 Major A 尽快——真实可触发的终端搁浅缺陷）。
@@ -15,13 +15,13 @@
 - 触发：API 返回 `boosterWallet.monthlyChargeLimitEnabled == true`、`monthlyChargeLimit.priceInCents > 0`、`monthlyUsed.priceInCents == "-9223372036854775808"`——`get_i64` 的 `parse::<i64>()` 恰好接受该字符串，`fmt_yuan` 负数分支的 `-cents` 在 release 构建（未开 `overflow-checks`）下回绕仍为 `i64::MIN`，按负数再次取负 → **无限递归 → 栈溢出 abort**。debug 构建则为取负溢出 panic。
 - 危害：栈溢出**不执行 panic hook**——raw mode + alternate screen 被搁浅，正是 SPEC 20 定义的"最严重事故"。且同一份 hostile payload 下 ts-nodejs 移植版存活（`ts-nodejs/src/core/format.ts:41` 用 bigint，取负永不溢出）——**oracle 比自己的移植版更脆**，违反 SPEC 20"绝不 panic"与 16.3 防御性解析基调（同文件对 `1e999`、`saturating_add` 均已设防，唯独漏此）。
 - 实证：独立 rustc 脚本验证 `wrapping_neg(i64::MIN) == i64::MIN`。
-- 修法：负数分支改 `checked_neg()`（`None` 时按 `i64::MAX` 处理）或以 `i128` 取绝对值计算；补 `fmt_yuan(i64::MIN)` 回归测试（顺带补 `format_reset` 阶梯与 `fmt_percent` 用例，见覆盖缺口）。
+- 修法：负数分支改 `checked_neg()`（`None` 时按 `i64::MAX` 处理）或以 `i128` 取绝对值计算；补 `fmt_yuan(i64::MIN)` 回归测试（顺带补 `format_reset` 阶梯与 `fmt_percent` 用例，见覆盖缺口）。止损选项（复核补充）：`[profile.release]` 加 `overflow-checks = true`——取负溢出立即 panic，而 `panic = "abort"` 下 panic hook 仍先于 abort 执行，"栈溢出搁浅终端"降级为"恢复终端后崩溃"；代价是全 crate 算术溢出由回绕变 panic，启用前需评估其余算术路径。
 
 ## Minor
 
 1. **缩窗 xterm 转义在 VT processing 启用前写入 stdout**（`rust/src/app.rs:343`）：crossterm 0.28.1 的 VT 启用是惰性的（首次 ANSI `execute!` 才发生），conhost 场景（Win10 默认终端或 Win11 设 conhost 为默认时双击启动，`GetConsoleProcessList==1` 恰好放行）输出模式无 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`，`ESC[8;13;72t` 被当字面文本回显进主屏缓冲——退出后用户看到一行乱码残留。WT 下无害。修法：写转义前自行启用 VT（失败则跳过通道 (a) 只走 Win32 序列）。
-2. **settings.json 非原子覆写 + 与注册表无对账**（`rust/src/settings.rs:58-63`）：truncate-then-write，写入中途崩溃留下截断 JSON，下次启动 `unwrap_or_default()` 静默回落默认；更糟的是 HKCU Run 值不回退——注册表残留 `true` 照常自启，settings.json 回落 `AutoStart=false`，设置界面与实际行为背离且无提示。修法：同目录临时文件 + `rename` 覆盖；启动时可选做一次 Run 值对账。
-3. **parse_reset_time 是 SPEC 16.3 的超集**（`rust/src/quota.rs:161-185`）：实际接受 RFC3339 之外的宽松形状（空格分隔、紧凑偏移、naive 本地时间）。行为已被 ts golden（`reset_time.txt` 29 行）锁定为事实契约，属 **SPEC 文本滞后**而非代码错误。修法：SPEC 16.3 措辞更新为"RFC3339 + DateTimeOffset.TryParse 阶梯（以 golden 为准）"。
+2. **settings.json 非原子覆写 + 与注册表无对账**（`rust/src/settings.rs:58-63`）：truncate-then-write，写入中途崩溃留下截断 JSON，下次启动 `unwrap_or_default()` 静默回落默认；更糟的是 HKCU Run 值不回退——注册表残留 `true` 照常自启，settings.json 回落 `AutoStart=false`，设置界面与实际行为背离且无提示。修法：同目录临时文件 + `rename` 覆盖；启动时可选做一次 Run 值对账。复核补充两条同族背离路径：`settings::save` 吞错后 `save_settings`（`app.rs:222`）仍无条件跳回 Dashboard，写盘失败（如只读 portable 目录）时用户以为已保存、无任何提示；`apply_auto_start` 在 `current_exe()` 失败时静默跳过，`AutoStart=true` 而注册表无值。
+3. **parse_reset_time 是 SPEC 16.3 的超集**（`rust/src/quota.rs:161-185`）：实际接受 RFC3339 之外的宽松形状（空格分隔、紧凑偏移、naive 本地时间）。行为已被 ts golden（`reset_time.txt` 29 行）锁定为事实契约，属 **SPEC 文本滞后**而非代码错误。修法：SPEC 16.3 措辞更新为"RFC3339 + DateTimeOffset.TryParse 阶梯（以 golden 为准）"。复核补充：`reset_time.txt` 实为 29 个内容行但无尾换行符（`wc -l` 计 28）——SPEC 22 状态注记的"28 行"与本清单的"29 行"系计数口径差异而非 golden 漂移，建议两处统一口径。
 4. **percent ≥ 1000% 时 `%` 后缀被截断**（`rust/src/ui/dashboard.rs:78` `chars().take(4)`）：`limit<=0 → 1` 的防御分支恰可制造大 percent（如 5000.0 → 显示 `5000` 而非 `5000%`），与 SPEC 12.2 `{percent:0}%` 不符。修法：列预算加宽至 5 字符或截断保留尾缀。
 5. **panic hook 全局生效**（`rust/src/app.rs:368-373`）：任意 tokio 后台任务 panic 同样执行"恢复终端"，但 tokio 吞掉任务 panic 让 app 继续运行——结果是存活状态下拆除 alternate screen、退出 raw mode。审查者核查了最可疑路径（tokio-1.53.1 `sleep` 对超大 Duration 走 `far_future()` 不 panic），**当前无可达触发路径**，列防御纵深缺口。修法：hook 内 thread-local 标记仅主循环线程生效，或任务 panic 触发统一退出。
 
@@ -30,6 +30,8 @@
 6. `rust/src/state.rs:17` `AppState.update` 只写不读（UI 读 `App.update`），死字段。
 7. `rust/src/credentials.rs:71-79` `[ providers.kimi ]`（括号内侧带空格）剥括号后节名残留空格，误判非 provider——真实 kimi CLI 写紧凑格式不受影响，可登记为已知限制或对节名再 `trim()`。
 8. `rust/src/quota.rs:78-83` 与 `rust/src/update.rs:24-29` 各持独立 `OnceLock<Client>`，可共享连接池；纯整理。
+9. `rust/src/ui/dashboard.rs:94` `usage_line` 宽度预算用 `reset.len()`（字节数）——成立仅因 `format_reset` 输出纯英文 ASCII；倒计时文案一旦本地化（CJK 占 2 单元格），bar 宽度即被低估。TS 版 EAW 陷阱在 Rust 侧的休眠形态（复核新增）。
+10. `rust/src/ui/settings_view.rs:94,122` accent 底文字硬编码 `Color::White` 未走 palette——SPEC 11.1 九色表无"accent 底文字"brush（规格空白而非违规）；accent 若改为浅色系将对比度失守（复核新增）。
 
 ## 已核对通过（不必重做）
 
@@ -38,6 +40,8 @@
 - **终端纪律**：RAII guard 在 `enable_raw_mode` 与 `EnterAlternateScreen` 之间声明；panic hook 先于终端初始化；`resize_owned_console` 的 `SetConsoleWindowInfo` **指针传参正确**（windows-0.61.3 签名核实——ts 版抄错致 segfault 的参照实现无误）；`GetConsoleProcessList` slice 形态、`GetStdHandle` 双重空值防御均正确。
 - **安全面**：token 只进 `Authorization` 头、只发往常量端点；自检输出不含凭证。
 - **SPEC 契约逐项核对一致**：11.1 九色色值、12.3 FormatReset 阶梯、12.5 FmtYuan（除 A）、12.7 footer 与防抖、13.2 保存顺序、16.1–16.5、17.1–17.4（含 UA/Range/fallback）、18.1–18.3、19 自检、20 缩窗守卫与恢复、21 skills 三根目录扫描。
+- **build.rs**（复核补充）：非 Windows 目标早退；`compile()` 失败仅 `cargo:warning` 不 fail 构建（与 AGENTS.md "warns, never fails" 一致）；VERSIONINFO 的 File/Product version 自动派生自 `CARGO_PKG_VERSION`，版本 bump 只需改 `Cargo.toml`。
+- **测试分布**（复核补充）：15 个 `#[test]` = format 2 + quota 6 + app 5 + skills 2，供日后 diff 基线。
 
 ## 测试覆盖缺口（防御性路径无测试）
 
@@ -47,8 +51,8 @@
 - **polling.rs**：reschedule/retime 交错、keep-last-good 传递链、30 s 快重试/成功回周期零测试（ts 侧反而有）。
 - **update.rs**：`parse_semver`、fallback 次序、`check_failed` 边界零测试。
 - **quota.rs**：`fill_missing_from` 链、fetch 错误归类（无 HTTP mock 基建）、`get_i64` 极值字符串。
-- **纯逻辑 UI 函数**：`usage_line` 宽度预算、`bar_spans` 边界、skills_view 滚动不变量。
-- **终端纪律**（hook 安装顺序、各退出路径恢复、缩窗守卫）：难以自动化，建议至少以集成测试钉住结构性事实。
+- **纯逻辑 UI 函数**：`usage_line` 宽度预算、`bar_spans` 边界、skills_view 滚动不变量（复核补充：滚动计算内联在 `draw()` 中，`skills_view.rs:96-105`，需先提取为纯函数才可单测）。
+- **终端纪律**（hook 安装顺序、各退出路径恢复、缩窗守卫）：难以自动化，建议至少以集成测试钉住结构性事实。复核补充另一例：`main.rs:31` `.expect("failed to build tokio runtime")` 位于 panic hook 安装之前，当前安全仅因终端尚未初始化——安全来自调用顺序而非机制，同样建议钉住（呼应 Minor 5）。
 
 ## 修复状态回填
 
@@ -60,6 +64,18 @@
 | Minor 3（SPEC 16.3 文本滞后） | 未修 | — |
 | Minor 4（percent ≥1000% 吞 `%`） | 未修 | — |
 | Minor 5（panic hook 全局生效） | 未修（无可达路径，防御纵深） | — |
-| Suggestion 6–8 | 未修（整理级） | — |
+| Suggestion 6–10 | 未修（整理级；9–10 为复核新增） | — |
 
 > 修复完成后请在本表回填状态与实测位置（参照 REVIEW-M1.md 的回填惯例）。
+
+## 复核记录（2026-09-25，v0.1.1 / HEAD `7a6cd21`）
+
+独立复核（只读，未执行构建与二进制）：
+
+- `rust/src/` 与审查基线 `53d519d` 逐字节一致（`git diff` 为空 + `format.rs` md5 比对）；期间仅 `7a6cd21` 将 `Cargo.toml` 版本号 bump 至 0.1.1。
+- 9 项发现全部复现，行号引用零偏差；上表"未修"判定复核时仍全部成立。
+- Minor 1 的依赖取证下钻至 vendored crossterm-0.28.1 源码证实：VT 启用为 `ansi_support.rs` 内 `parking_lot::Once` 惰性触发（首个 ANSI 命令才发生），缩窗转义写入时输出模式确无 `ENABLE_VIRTUAL_TERMINAL_PROCESSING`。
+- Minor 3 的 SPEC 文本滞后复核时仍存在：`SPEC.md:421` 仍仅写"RFC 3339 解析"，未提宽松阶梯。
+- 依赖版本基线与 `Cargo.lock` 一致：crossterm 0.28.1 / ratatui 0.29.0 / tokio 1.53.1 / windows 0.61.3。
+- 复核新增内容已就地标注：Suggestion 9–10、Major A 止损选项、Minor 2 两条同族路径、Minor 3 golden 口径说明、覆盖缺口两条注记。
+- 未复核项（运行时测量，本次未执行）：`cargo test` 实跑、两个自检的实时输出、conhost 实机回显乱码。
