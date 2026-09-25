@@ -160,6 +160,8 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 
 **定位**：Go 版与现有三版同为 SPEC 契约的受支持实现，SPEC 22 为其新开登记小节；`go/` 的构建/测试/发布条目在落地后补进 AGENTS.md 与 SPEC 第 7/19 章。
 
+> **落地状态（2026-09-25，M3 增补 2026-09-26）**：M0/M1/M2 完成——Go 1.27.0 装机（winget；GOPROXY 已设 `goproxy.cn`，本机不可达 proxy.golang.org）、`go/` 脚手架与依赖钉版就绪（bubbletea v2 实证 import path 为 `charm.land/bubbletea/v2@v2.0.10`）、core 10 模块 + 99 测试全绿（golden 全等 + TZ 守卫）、自检 parity 对 Rust debug exe 双分支逐字节一致（no-token 7 行 + update 1 行；成功路径 19 行待本机 token 刷新后复验）。M3 完成（2026-09-26）——bubbletea v2 TUI 层三视图 + 按键路由 + 心跳/主题轮询 + sanitize/EAW，tui 包 32 测试，全仓 134 测试全绿，parity 复跑一致，隐藏 conhost 启动存活冒烟通过。详见 `docs/PLAN-GO.md` §2/§6 落地注记。
+
 ## 12. 发版状态与建议（2026-09-25）
 
 **现状**：`main`（`9378241`）领先已发布的 `v0.1.2`（tag 指向 `b5a5702`）——收尾批次（异步主题轮询、去 unref、keypress 兜底、openUrl 结案回滚、IME 文档）只在 main，未进任何 release。
