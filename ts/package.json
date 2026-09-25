@@ -1,6 +1,6 @@
 {
   "name": "kimi-planbar-tui-ts",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Terminal-resident Kimi Code plan quota dashboard (TS edition, Bun + OpenTUI)",
   "type": "module",
   "private": true,
