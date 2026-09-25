@@ -4,9 +4,9 @@
 >
 > 本文档是整个项目的**唯一权威规格**（single source of truth），分两篇：
 > - **第一篇 项目规格**（第 1–9 章）：目标、架构、数据流、安全、构建发布、维护边界
-> - **第二篇 UI 与行为规格**（第 10–22 章）：配色、布局、API 解析、持久化等全部数值细则；第 22 章登记 TS 版与 Rust 版不等价的实现机制（Bun 版已冻结，其条目转为历史登记）
+> - **第二篇 UI 与行为规格**（第 10–22 章）：配色、布局、API 解析、持久化等全部数值细则；第 22 章登记 TS 版与 Rust 版不等价的实现机制
 >
-> **版本状态**：`rust/`（Rust 版）为持续维护的推荐实现；`ts-nodejs/`（Node 版）为受支持的替代实现；`ts/`（Bun + OpenTUI 版）**仅实验性质且已冻结**——只为留档保留，不再随 Releases 发布、不再维护，随时可能移除。本规格其余章节描述的行为契约以 Rust 版为基准，对 Node 版同样成立；第 22 章标注 Bun 版专有的条目仅作历史参考。
+> **版本状态**：`rust/`（Rust 版）为持续维护的推荐实现；`ts-nodejs/`（Node 版）与 `ts/`（Bun + OpenTUI 版，2026-09-25 解冻）为受支持的替代实现，版本号独立。本规格其余章节描述的行为契约以 Rust 版为基准，对两个 TS 版同样成立；第 22 章标注各版专有的条目为该版实现差异登记。
 >
 > 章节编号与托盘版（kimi-planbar-tray）的 SPEC 保持一致，便于交叉对照；其中 **第 10 章（窗口规格）、第 14 章（托盘行为）、第 15 章（动画）对 TUI 版不适用**，以短章声明原因。其余章节内容相同的，本文档仍完整重述契约——本文档可独立成立，不依赖托盘版 SPEC。
 >
@@ -52,18 +52,18 @@ Windows 终端常驻仪表盘（无托盘、无窗口、无动画），让 Kimi 
 
 ### 3.1 仓库结构
 
-Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版有两个并行实现——Bun + OpenTUI 版位于 `ts/`（**实验性、已冻结，仅留档**），Node 24 + 手写 ANSI 版位于 `ts-nodejs/`（受支持）。维护口径：Rust 版与 Node 版为现行实现，Bun 版不再发布、不再维护；三者历史上共享同一行为契约（本规格）：
+Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版有两个并行实现——Bun + OpenTUI 版位于 `ts/`（2026-09-25 起恢复维护），Node 24 + 手写 ANSI 版位于 `ts-nodejs/`（受支持）。维护口径：Rust 版为现行推荐实现，两个 TS 版为受支持替代；三者历史上共享同一行为契约（本规格）：
 
 - `rust/Cargo.toml` / `rust/Cargo.lock` — 包名与二进制名均为 `kimi-planbar-tui`
 - `rust/src/` — 后端 core 模块（自托盘版 `rust/src-tauri/src/` 去 Tauri 化移植）+ `rust/src/format.rs`（格式化 helper，移植自托盘版前端 `src/common.ts`）+ `rust/src/app.rs` 与 `rust/src/ui/`（全新代码：事件循环与 ratatui 视图层）
 - `ts/package.json` / `ts/tsconfig.json` — 包名 `kimi-planbar-tui-ts`，版本独立从 0.1.0 起步
 - `ts/src/core/` — 与 Rust core 行为 1:1 的十个模块（凭证链、quota、polling、settings、skills、update、format、theme、state、严格 JSON）；禁止 import 任何 `@opentui` 符号
 - `ts/src/tui/` — OpenTUI 渲染层（line / dashboard / settingsView / skillsView / renderer / app / console / shrink），与 core 严格分层，可整体替换
-- `ts/README.md` — 本目录冻结说明：实验性、不再随 Releases 发布、不再维护（供直接进入 `ts/` 的人与 AI agent 参考）
+- `ts/README.md` — 本目录说明（2026-09-25 解冻，恢复维护）
 - `ts-nodejs/package.json` — 包名 `kimi-planbar-tui-ts-nodejs`，版本独立从 0.1.0 起步
 - `ts-nodejs/src/core/` — 自 `ts/src/core/` 平移的同一套十个模块（仅把 3 处 `Bun.*` 调用换成 `node:child_process`，其余逐字节一致）
 - `ts-nodejs/src/tui/` — 手写 ANSI 渲染层（ansi / wcwidth / screen / terminal）+ 视图（dashboard / settingsView / skillsView / app），无任何 TUI 库
-- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）由 Rust 版与 Node 版共享（已冻结的 Bun 版条目转为历史登记）；**TS 版与 Rust 版不等价的实现机制统一登记在第 22 章**，按本规格章节号归档
+- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）由 Rust 版与两个 TS 版共享；**TS 版与 Rust 版不等价的实现机制统一登记在第 22 章**，按本规格章节号归档
 - 根目录：`AGENTS.md`、`README.md`、`README_CN.md`、`LICENSE`、`NOTICE`
 
 ### 3.2 进程与视图模型
@@ -178,7 +178,7 @@ npm run build:exe    # SEA 单文件 exe → ts-nodejs/dist/kpt-tui-node.exe（�
 
 `ts-nodejs/dist/` 已 gitignore，不分发进仓库；产物与 Rust 版一样需在现代终端（基准：Windows Terminal / VS Code 集成终端）中运行。
 
-**TS 版（Bun，已冻结）**（前提：Windows + Bun ≥ 1.3，无 Cargo 依赖）——不推荐、不再随 Releases 发布，仅为留档保留：
+**TS 版（Bun）**（前提：Windows + Bun ≥ 1.3，无 Cargo 依赖；`npm i -g --allow-scripts=bun bun` 在本机安装——裸 `npm i -g bun` 被 npm allowScripts 策略拦截且跳过 postinstall）：
 
 ```bash
 cd ts
@@ -187,13 +187,13 @@ bun run dev          # 开发运行（bun ... src/main.ts）
 bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行时，~90 MB）
 ```
 
-产物同样受"终端要求"约束（Windows Terminal / VS Code 集成终端为基准）。`ts/dist/` 已 gitignore，不分发进仓库。该目录不再维护（不修 bug、不加功能），随时可能移除；以上命令仅作留档。
+产物同样受"终端要求"约束（Windows Terminal / VS Code 集成终端为基准）。`ts/dist/` 已 gitignore，不分发进仓库。
 
 ### 7.2 测试
 
 - `cargo test`：skills frontmatter 解析单测（自托盘版移植）+ quota JSON 解析单测（字符串/数字混排、`isEnabled=false`、单位四舍五入、除零）——本项目族首个真正的解析测试套件
 - **TS 版（Node）**：`cd ts-nodejs && npm test`（`node:test` + 内置 `bun-shim`，用例与 Bun 版同源；TZ 由 `scripts/run-tests.mjs` 固定）。`npm run parity` 与 `node test/parity/diff.ts --ts-exe dist/kpt-tui-node.exe` 同上；`npm run typecheck` 保持 0 error。同一 golden 集与背靠背方法（22.1）
-- **TS 版（Bun，已冻结）**：以下命令仅为留档保留；该版不再维护，测试通过与否不作为发布门槛。`cd ts && bun run test`（`bun:test`，用例对照 `rust/src/` 单测 1:1 移植，并额外对 Rust oracle golden 做全等断言；时区由脚本固定为 `Asia/Shanghai`，直接 `bun test` 会因时区使 golden 失败）。跨版本一致性：`bun run parity` 与本机 Rust exe 背靠背比对两个无头自检；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 比对编译产物。验证方法与豁免项见 22.1
+- **TS 版（Bun）**：`cd ts && bun run test`（`bun:test`，用例对照 `rust/src/` 单测 1:1 移植，并额外对 Rust oracle golden 做全等断言；时区由脚本固定为 `Asia/Shanghai`，直接 `bun test` 会因时区使 golden 失败）。跨版本一致性：`bun run parity` 与本机 Rust exe 背靠背比对两个无头自检；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 比对编译产物。验证方法与豁免项见 22.1
 - 无头自检（详见第 19 章）：`--test-fetch` / `--test-update`，无互斥锁，天然可与运行中实例并存
 - 一致性验证：与托盘版同机背靠背跑 `--test-fetch`，JSON 逐字段 diff
 - 视觉验证：在 Windows Terminal 双主题下人工对照第 11/12 章
@@ -201,7 +201,7 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 
 ### 7.3 发布
 
-1. 版本号同步：Rust exe 的版本号唯一来源是 `rust/Cargo.toml`；Node 版在 `ts-nodejs/package.json` 独立升版（Bun 版已冻结，不升版）
+1. 版本号同步：Rust exe 的版本号唯一来源是 `rust/Cargo.toml`；Node 版在 `ts-nodejs/package.json` 独立升版；Bun 版在 `ts/package.json` 独立升版（2026-09-25 解冻后恢复；`bun.lock` 不记录 workspace 版本号，无需同步）
 2. `cd rust && cargo build --release` 出单 exe
 3. 手动上传 GitHub Releases；**不要把二进制提交进仓库**（发布产物已 gitignore）
 4. 版本号独立于托盘版（kimi-planbar-tray），从 0.1.0 起步
@@ -218,7 +218,7 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 
 - 本仓库独立维护，与托盘版（kimi-planbar-tray）仅共享数据契约（凭证链、settings.json schema、API 解析规则）；行为歧义时以本文档第二篇为准
 - core 模块与托盘版 `rust/src-tauri/src/` 保持行为一致；托盘版仓库为参考实现
-- **版本维护边界**：受支持实现为 Rust 版（`rust/`）与 Node 版（`ts-nodejs/`）。`ts/`（Bun + OpenTUI 版）已冻结——仅留档保留，不再随 Releases 发布，不接受新功能与 bug 修复，随时可能移除；第 22 章及正文中标注为 Bun 版（`ts/`）的机制说明（如第 20 章的「TS 版（Bun）同判据同通道」、22.4 的 Bun 子条）自冻结起转为历史登记，不再构成对该版的维护承诺。
+- **版本维护边界**：受支持实现为 Rust 版（`rust/`）、Node 版（`ts-nodejs/`）与 Bun 版（`ts/`，2026-09-25 解冻）。`ts/`（Bun + OpenTUI 版）曾于 v0.1.1 后冻结为实验性留档，**2026-09-25 解冻恢复维护**（修复独占控制台启动崩溃与渲染层鼠标劫持，见 `HANDOFF.md` 与 22.5/22.6），重新作为受支持替代版本随版本号独立演进；2026-09-19 至 2026-09-25 期间标注为「已冻结」的历史登记（含 22.4 的 Bun 子条）仍按当时事实保留。
 
 | 文档 | 定位 |
 |---|---|
@@ -543,7 +543,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 ## 20. 其他实现细节（TUI 专有）
 
 - **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。终端被留在 raw mode 是 TUI 最严重的事故。两个 TS 版的等价机制（Bun 版需 `bun:ffi SetConsoleMode` 并在每次输入/重绘前重申；Node 版由 Node 自身处理 raw mode，但须保证恢复处理器先于终端初始化注册）见 22.5。
-- **启动时最小窗口（72×13）**：`run()` 起始、终端初始化之前，把窗口收缩到线框布局的最小尺寸（72 列 × 13 行，常量 `MIN_WIN_COLS`/`MIN_WIN_ROWS`）。**守卫**：仅当进程独占控制台时执行——`GetConsoleProcessList` 返回恰好 1 个附加进程（双击/新开窗口启动）；从已有终端会话（cmd / pwsh / Git Bash / 其他 WT 标签页）启动时控制台是共享的，绝不改动用户窗口。两条 best-effort 通道，异常静默吞掉：(a) xterm 窗口操作转义 `ESC [ 8 ; 13 ; 72 t`（Windows Terminal 1.22+ 支持）；(b) conhost Win32 序列：先 `SetConsoleWindowInfo` 缩视口到 1×1 → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` 设为完整 72×13 矩形。**TS 版（Bun）同判据同通道**：`GetConsoleProcessList` 经 `bun:ffi` 调用，FFI 不可用时退回终端环境变量启发式（结构体按值传参的手工打包见 22.6）。**TS 版（Node）**：无 Win32 binding，守卫只用环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` 全缺才缩），通道仅 (a)——且经实测当前 ConPTY 不透传该窗口操作转义，在本机为优雅 no-op（见 22.6）。
+- **启动时最小窗口（72×13）**：`run()` 起始、终端初始化之前，把窗口收缩到线框布局的最小尺寸（72 列 × 13 行，常量 `MIN_WIN_COLS`/`MIN_WIN_ROWS`）。**守卫**：仅当进程独占控制台时执行——`GetConsoleProcessList` 返回恰好 1 个附加进程（双击/新开窗口启动）；从已有终端会话（cmd / pwsh / Git Bash / 其他 WT 标签页）启动时控制台是共享的，绝不改动用户窗口。两条 best-effort 通道，异常静默吞掉：(a) xterm 窗口操作转义 `ESC [ 8 ; 13 ; 72 t`（Windows Terminal 1.22+ 支持）；(b) conhost Win32 序列：先 `SetConsoleWindowInfo` 缩视口到 1×1 → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` 设为完整 72×13 矩形。**TS 版（Bun）同判据同通道**：`GetConsoleProcessList` 经 `bun:ffi` 调用，FFI 不可用时退回终端环境变量启发式（`SMALL_RECT` 指针传参的手工打包见 22.6）。**TS 版（Node）**：无 Win32 binding，守卫只用环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` 全缺才缩），通道仅 (a)——且经实测当前 ConPTY 不透传该窗口操作转义，在本机为优雅 no-op（见 22.6）。
 - **事件驱动重绘 + 250ms 心跳**：每个事件（键盘、配额 mpsc、版本 mpsc、skills mpsc、主题 tick、resize）处理后立即在事件循环顶部重绘一帧——不存在合并/节流（任意事件都会即时出帧）。另有一个 250ms 心跳 tick（`draw_tick`）在无事件时唤醒循环，保证倒计时文案持续刷新；倒计时文案随每次重绘重算（输入 `reset_at - now`），无独立 1Hz 定时器。
 - **系统主题 30s 轮询**：crossterm 无系统事件源，`theme=system` 时以 30s 间隔轮询注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` 的 `AppsUseLightTheme`（DWORD，0=dark，1=light，缺失默认 1），替代托盘版的 `WM_SETTINGCHANGE` 实时监听；`theme=light|dark` 时该轮询不影响配色。
 - **无单实例互斥锁**：允许多实例并存（每个终端一个），不创建 `KimiPlanbarTray.SingleInstance` 或任何命名互斥锁。
@@ -582,9 +582,9 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ## 22. TS 各版实现差异登记
 
-> 本章集中登记两个 TS 版——Bun 版（`ts/`，Bun + OpenTUI）与 Node 版（`ts-nodejs/`，Node 24 + 手写 ANSI）——在实现机制上与 Rust 版不等价之处，按本规格章节号归档。前述各章描述的行为契约以 Rust 版为基准；本章条目均为实现层面的等价机制或已知偏差——Rust/Node 相关条目由测试锁定，Bun 版条目为随该版冻结的历史登记，不再随代码演进。
+> 本章集中登记两个 TS 版——Bun 版（`ts/`，Bun + OpenTUI）与 Node 版（`ts-nodejs/`，Node 24 + 手写 ANSI）——在实现机制上与 Rust 版不等价之处，按本规格章节号归档。前述各章描述的行为契约以 Rust 版为基准；本章条目均为实现层面的等价机制或已知偏差——Rust/Node 相关条目由测试锁定，Bun 版条目自 2026-09-25 解冻起恢复随代码演进（此前的冻结期登记按当时事实保留）。
 >
-> **状态**：Bun 版（`ts/`）**已冻结**——仅为留档保留，不再发布、不再维护；本章标注为 Bun 版专有的条目转为历史登记，现行实现为 Rust 版与 Node 版。
+> **状态**：Bun 版（`ts/`）曾于 2026-09-19 至 2026-09-25 冻结，现恢复维护；本章 Bun 版条目按当前代码事实维护，冻结期的历史记录以「实测日期」标注保留。现行实现为 Rust 版与两个 TS 版。
 
 ### 22.1 验证方法（对应 7.2 / 19）
 
@@ -634,12 +634,15 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - 下划线属性：SPEC 13.2 选中 interval 行时 Rust 加 `Modifier::UNDERLINED`；Bun 版用 OpenTUI `underline()` style，Node 版直接发 SGR 4。
 - Skills 扫描放在下一个宏任务：先出 `Scanning...` 帧再异步跑扫描，对应 Rust 的 `spawn_blocking` + mpsc 回调；同步扫描会卡住重绘。设置保存的 `reg.exe` 自启写入仍同步（SPEC 13.2 的保存顺序要求它先返回）。
 
-**Bun 版（OpenTUI 渲染层，已冻结，仅历史参考）**：
+**Bun 版（OpenTUI 渲染层）**：
+
+- **mouse tracking 必须显式关闭**：OpenTUI 0.5.x 的 `createCliRenderer` 默认 `useMouse = true`，启动即发 `ESC[?1000h ?1002h ?1003h ?1006h`——鼠标被 app 完全劫持（真实终端无法选择/复制文本），且 `?1003` any-motion 事件流不经过 `ensureRawMode()` 重申路径，叠加 Bun 每读 stdin 翻回 cooked 的行为会把 VT mouse 序列回显上屏。本版是只读键盘 dashboard（SPEC 12.7 无任何鼠标定义），`createTuiRenderer` 必须传 `useMouse: false`（2026-09-25 修复，此前版本存在此缺陷）。
 
 - 选中态文字：Rust 走 crossterm `Color::White` → SGR `37`（终端调色板白），OpenTUI 的 `"white"` 解析为 `#FFFFFF`。观感差异仅在用户自定义终端白时可见。
 - 整屏底色靠逐 span 合成：OpenTUI 无等价于 ratatui 整屏 `Block::bg` 的填充，未显式给 bg 的文本 run 会落到终端默认底色。故适配器把 `window_bg` 作为 base bg 合成到每个无自有 bg 的 span 上，并在每行右侧补 window_bg 空白 run 铺到满宽、行间补满宽空行铺到满高。
 - OpenTUI 实测约束：内容 write-once（变更行销毁重建）、测试渲染器无绝对定位（流式从上到下）、`resize()` 在测试渲染器崩溃（快照 `TuiLine[]` 代替）、键事件挂在 `renderer.keyInput`（`renderer.on("keypress")` 收不到）。
-- **raw mode 差异（重要）**：Bun 的 `process.stdin.setRawMode()` 在 Windows 下不改动 OS 控制台模式，且 Bun 每读一次 stdin 会把模式翻回 cooked。对策：`ts/src/tui/console.ts` 用 `bun:ffi` 直接 `SetConsoleMode`（清 `ENABLE_PROCESSED_INPUT|ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT`、置 `ENABLE_WINDOW_INPUT`；其中清 `PROCESSED_INPUT` 只为与 crossterm 对齐，**不会**让 Ctrl+C 可用，见 22.6），并在每次输入事件与每次重绘前重申 raw；退出路径还原原模式。注意输入句柄是 `(HANDLE)-10` = `0xfffffff6`（`0xfffffff5` 是输出句柄，M2 曾写错）；`bun:ffi` 对 `i64` 返回 `bigint`，比较前须 `Number()` 归一。
+- **恢复处理器先于终端初始化注册**（对齐 Node 版与 Rust panic hook 纪律）：`uncaughtException`/`unhandledRejection`/SIGINT/SIGBREAK 的恢复闭包必须在 `await makeRenderer()` **之前**挂上，闭包对 renderer 与 raw-mode 还原句柄做空值容忍（`createCliRenderer` 中途抛出时仍有一条恢复出路）。2026-09-25 起 `ts/src/tui/app.ts` 按此实现，此前版本注册在初始化之后。
+- **raw mode 差异（重要）**：Bun 的 `process.stdin.setRawMode()` 在 Windows 下不改动 OS 控制台模式，且 Bun 每读一次 stdin 会把模式翻回 cooked。对策：`ts/src/tui/console.ts` 用 `bun:ffi` 直接 `SetConsoleMode`（清 `ENABLE_PROCESSED_INPUT|ENABLE_LINE_INPUT|ENABLE_ECHO_INPUT`、置 `ENABLE_WINDOW_INPUT`；清 `PROCESSED_INPUT` 只为与 crossterm 对齐，Ctrl+C 的送达与否由 Bun 运行时自身决定，见 22.6），并在每次输入事件与每次重绘前重申 raw；退出路径还原原模式。注意输入句柄是 `(HANDLE)-10` = `0xfffffff6`（`0xfffffff5` 是输出句柄，M2 曾写错）；`bun:ffi` 对 `i64` 返回 `bigint`，比较前须 `Number()` 归一。
 - **sanitize 注入防线与 Node 版对齐**：OpenTUI 的 StyledText 不过滤控制字符，故外部字符串（skill 名称/描述、API 文案）进帧前统一经 `ts/src/tui/line.ts` 的 `sanitize()` 剥离——先整段剥 ANSI 序列（CSI/OSC/ESC+char），再剥残余 C0/DEL/C1 控制符，规则与顺序同 Node 版 `ansi.ts` 的 `sanitize()`；关卡设在渲染入口 `padLineToWidth`（一切 `TuiLine` 必经此处），测试含注入用例（`ts/test/line.test.ts`）。
 
 **Node 版（手写 ANSI 渲染层）**：
@@ -654,7 +657,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 ### 22.6 无单实例互斥与启动缩窗（对应 20）
 
 - **无单实例互斥**：三版一致，允许多实例并存，不建任何命名互斥锁。
-- **Bun 版缩窗与 Rust 同判据**：`bun:ffi` 调 `kernel32!GetConsoleProcessList` 可用，按「附加到本控制台的进程数恰好为 1」判定独占；环境变量启发式只在 FFI 不可用时兜底；`stdout` 非 TTY 时一律不缩。两条缩窗通道与 Rust 同名同序（(a) `ESC [ 8 ; 13 ; 72 t`；(b) conhost Win32 序列），差别只在传参方式：`COORD`/`SMALL_RECT` 按值传参，bun:ffi 无结构体参数，故按 x64 调用约定手工打包进整数寄存器（`COORD = (y<<16)|x`，`SMALL_RECT` 四个 i16 依次占 0/16/32/48 位）。
+- **Bun 版缩窗与 Rust 同判据**：`bun:ffi` 调 `kernel32!GetConsoleProcessList` 可用，按「附加到本控制台的进程数恰好为 1」判定独占；环境变量启发式只在 FFI 不可用时兜底；`stdout` 非 TTY 时一律不缩。两条缩窗通道与 Rust 同名同序（(a) `ESC [ 8 ; 13 ; 72 t`；(b) conhost Win32 序列）。传参方式：`SetConsoleScreenBufferSize` 的 `COORD` 按值传参，bun:ffi 无结构体参数，按 x64 调用约定手工打包进整数寄存器（`COORD = (y<<16)|x`）；但 `SetConsoleWindowInfo` 的第三参是 **`const SMALL_RECT *`（指针）**——SMALL_RECT 必须装进 8 字节 Buffer（四个 i16 小端依次为 left/top/right/bottom）经 `ptr()` 传入。**2026-09-25 修复**：旧实现误按值把结构体位串塞进指针位（首次调用即传 0 → 解引用空指针），所有独占控制台启动（双击 exe / `start`）瞬间原生崩溃（segfault at 0x0，退出码 3，窗口闪退无输出；共享控制台与非 TTY 场景被守卫短路故长期未暴露）。回归测试钉在 `ts/test/shrink.test.ts`（字节布局），事故全录见 `HANDOFF.md`。
 - **Node 版缩窗为环境变量启发式**：无 Win32 binding，`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` 任一存在 → 共享终端，绝不缩窗；三者全缺 → 进入 alternate screen 之前向 stdout 发 `ESC[8;13;72t`（异常静默吞掉）。**实测结论（2026-09-20，WT 1.24 / conhost，经 Start-Process 新窗口 + 回读 `stdout.columns` 探针）**：当前 ConPTY 不透传窗口操作转义——CSI 8、CSI 4（像素）、`mode con` 三条通道均不生效，该序列在本机为优雅 no-op，窗口保持默认尺寸；未来 ConPTY 若转发窗口操作则自动生效。
-- **Bun 版 Ctrl+C 不能退出（实测 2026-09-20，WT 1.24 / conhost）**：`ts/src/tui/console.ts` 清 `ENABLE_PROCESSED_INPUT` 是为与 crossterm 对齐（同时让 Ctrl+B/Ctrl+H 以字节送达），但 Bun 运行时下 Ctrl+C **既不作为按键送达、也不作为 JS SIGINT 送达**，置位/清零两条路都实测过：裸 bun 进程（不改 console mode、不注册 handler、不读 stdin）对 Ctrl+C 无反应；同一窗口、同一注入方式下 Rust 版（crossterm）正常退出；OpenTUI 解析器对 `0x03` 能正确产出 `{name:"c",ctrl:true}`（`ts/scripts/verify/parse-ctrlc.ts`）。可见事件被 Bun 侧吞掉。故 **Bun 版的退出键以 `q` 为准**；`app.ts` 的 SIGINT/SIGBREAK handler 与 `handleKey` 的 ctrl+c 分支保留（当前不改变行为，运行时若修复即自动生效）。复现脚本见 `ts/scripts/verify/`。
+- **Bun 版 Ctrl+C 的送达随 Bun 版本漂移（首次实测 2026-09-20，复测 2026-09-25）**：`ts/src/tui/console.ts` 清 `ENABLE_PROCESSED_INPUT` 是为与 crossterm 对齐（同时让 Ctrl+B/Ctrl+H 以字节送达），但 Ctrl+C 能否送达由 Bun 运行时自身决定——**2026-09-20 实测（当时 Bun 版本）完全吞掉**（不作为按键、也不作为 JS SIGINT 送达；裸 bun 进程对 Ctrl+C 无反应，同窗口 Rust 版正常退出，OpenTUI 解析器对 `0x03` 能正确产出 `{name:"c",ctrl:true}`，见 `ts/scripts/verify/parse-ctrlc.ts`）；**2026-09-25 在 Bun 1.4.2 / WT 1.24 复测已正常退出**（优雅退出、EXITCODE=0、终端完整恢复），旧记录随之失效。`q` 仍是首选退出键；`app.ts` 的 SIGINT/SIGBREAK handler 与 `handleKey` 的 ctrl+c 分支保留（两条通路都工作）。复现脚本见 `ts/scripts/verify/`；在未复测的 Bun 版本上不要假设两条通路中的哪一条。
 - **Bun 版路由忽略一切 Ctrl 组合键（除 Ctrl+C 退出外）**：`handleKey` 在 `q`/Ctrl+C 判定之后、视图分发之前 `if (key.ctrl) return`，故 Ctrl+R 等组合键不触发对应动作；Rust 版按键分发只看 `KeyCode` 不看 modifiers（带 CONTROL 的 `Char('r')` 仍命中刷新分支，见 `rust/src/app.rs:236-243`）。属刻意保留的已知偏差，由 `ts/test/appRouting.test.ts` 钉死。

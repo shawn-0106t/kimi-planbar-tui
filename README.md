@@ -4,7 +4,7 @@
 
 A terminal-resident dashboard that keeps your [Kimi Code](https://www.kimi.com/code/) plan quota in view — 5-hour window and weekly usage with reset countdowns, right in your terminal. No tray, no windows, no animations: just a fast TUI you can leave open in a terminal tab.
 
-> **Editions.** The Rust edition (`rust/`) is the maintained, recommended build. The Node edition (`ts-nodejs/`) is a supported alternative with the same UI and behavior. The former Bun edition (`ts/`) is **experimental and frozen** — kept in the repo for reference only, no longer shipped as a download, no longer maintained (no fixes, no features), and may be removed at any time. Do not rely on it.
+> **Editions.** The Rust edition (`rust/`) is the maintained, recommended build. The Node edition (`ts-nodejs/`) and the Bun edition (`ts/`) are supported alternatives with the same UI and behavior, each versioned independently (the Bun edition was frozen as experimental from 2026-09-19 to 2026-09-25 and was unfrozen to land its owned-console startup crash fix — see `HANDOFF.md`).
 
 ## Screenshot
 
@@ -39,7 +39,7 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 Get the latest `kimi-planbar-tui.exe` from [Releases](../../releases), or build from source (below). The same page also carries `kpt-tui-node.exe` (Node 24 + handwritten ANSI, ~88.7 MB embedding the Node runtime), with the same behavior and UI as the Rust edition. If you already have Node ≥ 24.6, you can skip the download and run from source instead.
 
-> The Bun edition's exe (`kpt-tui.exe`) appears only among the historical v0.1.1 assets. It is **no longer published** and not recommended — see the editions note above.
+> The Bun edition's exe (`kpt-tui.exe`) shipped only as a historical v0.1.1 asset and is published again starting with v0.1.2 (~90 MB — it embeds the Bun runtime).
 
 > Windows SmartScreen may warn on first launch because the exe is not code-signed. Click "More info" → "Run anyway" — this is expected for unsigned personal builds.
 
@@ -102,9 +102,9 @@ npm test                # node:test suite (scripts/run-tests.mjs pins TZ=Asia/Sh
 npm run parity          # diff --test-fetch / --test-update against the Rust exe
 ```
 
-### TS edition (Bun + OpenTUI) — experimental, frozen
+### TS edition (Bun + OpenTUI)
 
-> Not recommended and no longer shipped in releases: kept for reference only, no longer maintained, may be removed at any time.
+> Unfrozen on 2026-09-25 (it was experimental/frozen before that) and maintained again as a supported alternative; versioned independently.
 
 Requires Bun ≥ 1.3 on Windows (install it with `npm install -g --allow-scripts=bun bun`; a plain global install gets its postinstall skipped by npm's allowScripts policy). No Cargo involved.
 
@@ -117,9 +117,9 @@ bun run test            # bun:test suite (the script pins TZ=Asia/Shanghai)
 bun run parity          # diff --test-fetch / --test-update against the Rust exe
 ```
 
-> **Quit the Bun edition with `q`**: measured on WT 1.24 / conhost (2026-09-20), the Bun runtime swallows the Ctrl+C console event — it arrives neither as a keypress nor as a SIGINT — so Ctrl+C does nothing in this edition (the Rust edition quits normally). See SPEC 22.6.
+> **Quit the Bun edition with `q`**: whether Ctrl+C reaches the app drifts with the Bun runtime version (swallowed when measured on WT 1.24 / conhost, 2026-09-20; quitting normally again on Bun 1.4.2, re-measured 2026-09-25). `q` always works. See SPEC 22.6.
 
-The Rust and Node editions implement the same contract, `docs/SPEC.md`; the frozen Bun edition was built against the same contract but is no longer maintained. The places where a TS edition is mechanically different are registered in SPEC chapter 22 (for example: behind TLS-inspecting security software a script run needs `--use-system-ca` for the GitHub API version-check fallback; the Bun exe cannot embed that flag — one more reason it is not shipped — while the Node SEA exe has it baked in via `execArgv`; the quota and changelog paths are unaffected).
+All three editions implement the same contract, `docs/SPEC.md`; the places where a TS edition is mechanically different are registered in SPEC chapter 22 (for example: behind TLS-inspecting security software a Bun script run needs `--use-system-ca` for the GitHub API version-check fallback, and the Bun exe cannot embed that flag — the quota and changelog paths are unaffected — while the Node SEA exe has it baked in via `execArgv`).
 
 Headless self-checks (useful in CI or after changes):
 
@@ -148,7 +148,7 @@ After that, `kimi-planbar-tui` works in any terminal. Alternative: copy `rust/ta
 ## Tech notes
 
 - Single Rust crate in `rust/`: ratatui + crossterm (TUI), tokio + reqwest + serde (async/HTTP/JSON), winreg (registry), windows 0.61 (Win32 console), regex + chrono
-- The former Bun + OpenTUI TS edition in `ts/` — **experimental and frozen** (reference only; no longer shipped or maintained): `@opentui/core` (imperative render API, no React), registry through `reg.exe` child processes, and the Win32 console pieces (raw mode, console-ownership check, window shrink) through `bun:ffi`
+- The Bun + OpenTUI TS edition in `ts/` — maintained again (unfrozen 2026-09-25; was experimental/frozen before): `@opentui/core` (imperative render API, no React), registry through `reg.exe` child processes, and the Win32 console pieces (raw mode, console-ownership check, window shrink) through `bun:ffi`
 - The supported Node TS edition in `ts-nodejs/`: Node 24 with a handwritten ANSI render layer (no TUI library — line-level diff writes, an embedded wcwidth table, and a `sanitize()` firewall for external strings), registry through `reg.exe`, packaged as a Node SEA exe with `--use-system-ca` baked into `execArgv`
 - The release exe embeds a Windows VERSIONINFO resource and the app icon via `rust/build.rs` (`winresource` build-dependency, `rust/assets/icon.ico`); FileVersion/ProductVersion derive automatically from `CARGO_PKG_VERSION`, and embedding failure only warns (machines without the Windows SDK rc.exe still compile)
 - Backend modules are ported 1:1 from the sibling tray app [kimi-planbar-tray](https://github.com/shawn-0106t/kimi-planbar-tray) (Tauri edition) with Tauri removed; the shared behavior contract lives in `docs/SPEC.md`
