@@ -142,3 +142,20 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 - 改动文件：`ts/src/tui/shrink.ts`、`ts/src/tui/renderer.ts`、`ts/src/tui/app.ts`、`ts/test/shrink.test.ts`（新增字节布局回归用例）、`ts/package.json`（0.1.2）、`ts/README.md`、`docs/SPEC.md`、`docs/SPEC_EN.md`、`AGENTS.md`、本文件。
 - 验证结果：`bun run test` 全绿 0 失败（新增 2 例回归测试；pass 计数 270–271 浮动——两个 parity 用例是否计入 pass 随本机 `rust/target/debug` exe 是否在位浮动，判定标准为 0 失败）；管道启动序列 mouse tracking 转义为 0；`bun run build:exe` 后独占 console 启动（原崩溃场景）**进程存活**（修复前 EXIT=3）、72×13 缩窗生效、TUI 完整渲染且实时配额数据正常到达。
 - 交付前已按用户全局规则将本 diff 委派 code-reviewer 子代理独立复审。
+
+## 11. 后续计划（2026-09-25 用户拍板）：Go 版第四实现
+
+用户决定启动 **Go + bubbletea v2 / lipgloss** 版本（仓库第四个实现，目录约定 `go/`，行为契约仍为 `docs/SPEC.md`，版本号独立）。选型依据来自 2026-09-25 的技术栈调研（bubbletea v2.0.10 / tcell v3.5.0 均为 stable 且发版密集；单文件 exe 8–15 MB、`CGO_ENABLED=0` 交叉编译零配置；Charm 一线维护 Windows 支持；本项目的 Win32 需求在 Go 生态有现成包：`golang.org/x/sys/windows/registry` 等）。
+
+**移植顺序**（调研结论，按此执行）：
+
+1. **core 层**（10 模块，约 1.5–2.5k 行 Go）：逻辑 100% 可移植、代码 0% 复用——难点不在 CRUD 而在**防御性解析语义逐条复刻**：Go 的 `encoding/json` ≠ serde_json，需要同等克制的自定义解析镜像 `ts/src/core/json.ts`（严格 RFC3339、string-or-number、128 层深度上限、DST 拒绝语义）；SPEC 16 系列陷阱逐条对表（1e-8 元转分、`isEnabled=false`、4 KiB skills 截断、凭据链 30 s 余量）。
+2. **goldens 与 parity 原样复用**：7 个 Rust oracle golden 纯文本直接共享；自检输出做到 serde-identical JSON 后，`diff.ts` 只改 exe 路径——这是本仓库抗换栈的核心资产。
+3. **TUI 层**：三个视图从 `rust/src/ui/`（约 500 行）直译行布局/颜色/裁剪规则；bubbletea/lipgloss 替代 ratatui。
+4. **Win32 位逐项实测**：owned-console guard（`GetConsoleProcessList`）、缩窗双通道、HKCU Run、30 s 主题轮询——每个都要按 SPEC 20/22 陷阱表重新实测，成本集中在运行时行为差（raw mode、Ctrl+C、ConPTY），不在画界面。
+
+**DoD（必须含，本次事故最大教训）**：`owned-console 双击启动人肉验收`写进验收清单——自动化测试够不到独占 console 分支（2026-09-25 segfault 事故正是 270 测试全绿仍闪退）；另加 `--test-fetch` / `--test-update` 与 Rust exe 背靠背 parity 全绿、双主题人肉验收。
+
+**启动前检查**：确认 Go 工具链是否已安装（查 `C:\Users\rexxa\.kimi-code\env-snapshot\` 最新环境清单；快照 2026-09-19 未记录 Go 的话需先安装并重新盘点）。预算参考：2–4 周业余时间达 parity 全绿 + 双主题验收。
+
+**定位**：Go 版与现有三版同为 SPEC 契约的受支持实现，SPEC 22 为其新开登记小节；`go/` 的构建/测试/发布条目在落地后补进 AGENTS.md 与 SPEC 第 7/19 章。
