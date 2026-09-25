@@ -159,3 +159,22 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 **启动前检查**：确认 Go 工具链是否已安装（查 `C:\Users\rexxa\.kimi-code\env-snapshot\` 最新环境清单；快照 2026-09-19 未记录 Go 的话需先安装并重新盘点）。预算参考：2–4 周业余时间达 parity 全绿 + 双主题验收。
 
 **定位**：Go 版与现有三版同为 SPEC 契约的受支持实现，SPEC 22 为其新开登记小节；`go/` 的构建/测试/发布条目在落地后补进 AGENTS.md 与 SPEC 第 7/19 章。
+
+## 12. 发版状态与建议（2026-09-25）
+
+**现状**：`main`（`9378241`）领先已发布的 `v0.1.2`（tag 指向 `b5a5702`）——收尾批次（异步主题轮询、去 unref、keypress 兜底、openUrl 结案回滚、IME 文档）只在 main，未进任何 release。
+
+**建议：暂不发 0.1.3。** 依据是收尾批次对 exe 的用户可感知变化 ≈ 0：
+
+| 收尾变更 | 0.1.2 用户可感知？ |
+|---|---|
+| 主题轮询异步化 | 仅 `theme=system` 用户（维护者当前 settings 为 `dark`，轮询直接短路） |
+| keypress 静默兜底 | 纯防御，正常路径无差异 |
+| `openUrl` 回滚 | 行为与 0.1.2 完全一致（`start` 通道本就无恙，回滚只是撤掉误判改道） |
+| IME 文档登记 | README/SPEC 层面，exe 无关 |
+
+每个 release 都值得用户点一次下载——业余维护下发布频率应克制。
+
+**值得发 0.1.3 的时机**（满足其一）：① Go 版落地（第四实现登场 + Bun 收尾，一个有内容的版本）；② 出现下一个用户可感知的修复；③ 维护者实际改用 `theme=system` 且在意 30 s 一次的微顿挫。
+
+**未来发版 checklist**（本机已全自动跑通一次）：`ts/package.json` bump → `bun run test` → `bun run build:exe` → `sha256sum` 生成 `SHA256SUMS.txt`（gitignored）→ annotated tag 推送 → `gh release create <tag> ts/dist/kpt-tui.exe SHA256SUMS.txt --title ... --notes-file ...`（本机 gh 2.97.0 已认证 `shawn-0106t`，全程无需浏览器）→ `gh release view` 核对附件字节数。发布前冒烟：`./dist/kpt-tui.exe --test-fetch`（`no-token` 需先跑一次 `kimi` 命令刷新 CLI token，属环境态非构建缺陷——Rust 版可作对照）。
