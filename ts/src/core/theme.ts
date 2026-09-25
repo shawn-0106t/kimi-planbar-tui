@@ -76,7 +76,10 @@ export function parseLightThemeDword(queryOutput: string | null): "light" | "dar
 /** Registry reads go through reg.exe because the TS edition has no winreg.
  *  Chinese Windows prints GBK, which is why the bytes are decoded explicitly.
  *  Synchronous, like the Rust winreg call it replaces; the output is a couple
- *  of lines so there is no pipe-buffer to worry about. */
+ *  of lines so there is no pipe-buffer to worry about. Only two callers may
+ *  pay this synchronous cost: the one-time startup probe (nothing drawn yet)
+ *  and a saveSettings cache-miss (matching the Rust oracle's sync registry
+ *  read) — the 30 s poll uses the async variant below (SPEC 22.3). */
 export function readSystemTheme(): "light" | "dark" {
   try {
     const proc = Bun.spawnSync({
@@ -101,7 +104,29 @@ export function systemThemeSync(): "light" | "dark" {
   return cachedSystemTheme;
 }
 
-export function refreshSystemThemeCache(): "light" | "dark" {
-  cachedSystemTheme = readSystemTheme();
-  return cachedSystemTheme;
+/** Async variant for the 30 s poll: reg.exe runs off the event loop and only
+ *  the (rare) theme flip triggers a redraw afterwards. Also decodes the GBK
+ *  bytes explicitly, exactly like the sync read. */
+export async function refreshSystemThemeCache(): Promise<"light" | "dark"> {
+  try {
+    const proc = Bun.spawn({
+      cmd: ["reg.exe", "query", PERSONALIZE_KEY, "/v", "AppsUseLightTheme"],
+      stdout: "pipe",
+      stderr: "ignore",
+      windowsHide: true,
+    });
+    const [stdoutBytes, exitCode] = await Promise.all([
+      new Response(proc.stdout).arrayBuffer(),
+      proc.exited,
+    ]);
+    const next =
+      exitCode === 0
+        ? parseLightThemeDword(new TextDecoder("gbk").decode(new Uint8Array(stdoutBytes)))
+        : "light";
+    cachedSystemTheme = next;
+    return next;
+  } catch {
+    cachedSystemTheme = "light";
+    return "light";
+  }
 }

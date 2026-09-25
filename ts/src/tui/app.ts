@@ -439,8 +439,14 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
   };
 
   renderer.onKey((key: KeyPress) => {
-    ensureRawMode(); // re-arm before the next keystroke so conhost never echoes
-    handleKey(app, key, deps);
+    try {
+      ensureRawMode(); // re-arm before the next keystroke so conhost never echoes
+      handleKey(app, key, deps);
+    } catch {
+      // One bad key must not skip the redraw below, nor bubble into OpenTUI's
+      // own handler (which would drop this draw) — the silent-error baseline
+      // applies (SPEC 16.5); console.error would paint over the live frame.
+    }
     if (app.quit) {
       destroyRenderer();
       process.exit(0);
@@ -451,23 +457,36 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
 
   const themeTimer = setInterval(() => {
     // SPEC 20: theme=system polls the registry every 30 s; a change redraws
-    // immediately, like every other event.
+    // immediately, like every other event. The poll is the async reg.exe
+    // spawn (SPEC 22.3): a slow registry read must never stall redraws or
+    // keys, so the flip redraws from the promise, not inside the tick.
     if (state.settings.theme !== "system") return;
-    const next = effectiveTheme(state.settings.theme, () => refreshSystemThemeCache());
-    if (next === state.effectiveTheme) return;
-    state.effectiveTheme = next;
-    draw();
+    void refreshSystemThemeCache()
+      .then((system) => {
+        if (destroyed) return;
+        const next = effectiveTheme(state.settings.theme, () => system);
+        if (next === state.effectiveTheme) return;
+        state.effectiveTheme = next;
+        draw();
+      })
+      .catch(() => {}); // same silent-error baseline as the keypress path (SPEC 16.5)
   }, THEME_POLL_MS);
-  themeTimer.unref();
 
   const heartbeat = setInterval(draw, DRAW_HEARTBEAT_MS);
-  heartbeat.unref();
+  // Neither timer is unref'd: these timers are what keep the loop alive — the
+  // old unref left it alive only through an OpenTUI-internal 60 s tick, an
+  // undocumented dependency (SPEC 22.5). Quit paths call process.exit, so
+  // nothing here outlives the app.
 
   draw();
   await new Promise<never>(() => {}); // the loop lives in timers and handlers
 }
 
-/** Open a URL in the default browser; errors silently swallowed (SPEC 12.6/12.7). */
+/** Open a URL in the default browser; errors silently swallowed (SPEC 12.6/12.7).
+ *  Same `cmd /c start "" <url>` channel as rust/src/app.rs::open_url, with
+ *  windowsHide for CREATE_NO_WINDOW. Measured 2026-09-25: the channel works;
+ *  a "dead key" report here is the Chinese IME swallowing the letter before it
+ *  reaches the app — switch the IME to English (see README, SPEC 12.7). */
 export function openUrl(url: string): void {
   try {
     Bun.spawn(["cmd", "/c", "start", "", url], { stdout: "ignore", stderr: "ignore", windowsHide: true });

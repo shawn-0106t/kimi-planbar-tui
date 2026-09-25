@@ -353,6 +353,8 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 | `Enter` | Confirm |
 | `Esc` | Back to the previous view |
 
+> **Chinese IME notice (all editions, registered 2026-09-25)**: with the input method in Chinese mode, letter keys (`r`/`s`/`k`/`c`/`g`/`q`) enter pinyin composition and never reach the terminal — if a key "does nothing", press `Shift` to switch the IME to English first. This is not an implementation defect (Rust/Node/Bun behave identically); it is generic terminal-vs-IME interaction.
+
 ---
 
 ## 13. Settings form (settings view)
@@ -615,7 +617,7 @@ Both TS editions share one origin (the Node edition is ported from the Bun one),
 - `settings.json` writes are byte-identical to Rust: PascalCase keys, 2-space indent, **no trailing newline**; reads follow "a whole-document failure falls back to defaults; only a missing key falls back per key".
 - **A `RefreshMinutes` beyond 2^53 clamps to `Number.MAX_SAFE_INTEGER`**: the i64 bound is checked entirely in `BigInt` (outside i64 → whole-document fallback, matching Rust's type error), but `Number(bigint)` would round past 2^53, so the value kept is clamped to the exactly-representable range; Rust preserves the i64 verbatim. The difference carries into polling: Rust uses `saturating_mul(60)`, so an extreme value means "effectively never refreshes again", while the TS delay is clamped a second time by the 32-bit `setTimeout` ceiling (`2_147_483_647` ms ≈ 24.8 days). Both editions agree for every sane value (1/5/10/30).
 - The registry is only ever touched through spawned `reg.exe` with **GBK** decoding; autostart writes/deletes and never reads back. `AppsUseLightTheme` is read as the `REG_DWORD` text (`0x0`/`0x1`); any failure means light, the same as Rust's `unwrap_or(1)`.
-- Theme resolution stays a pure function: `effectiveTheme(configured, system)`; the system value is cached by the 30 s poll and read synchronously on the render path (Rust polls in its event loop too).
+- Theme resolution stays a pure function: `effectiveTheme(configured, system)`; the system value is cached by the 30 s poll and read synchronously on the render path (Rust polls in its event loop too). **The Bun edition's 30 s poll is an async `reg.exe` spawn (as of 2026-09-25; the Node edition is still synchronous, pending its own batch)**: a registry read must never block the event loop after the first frame exists — the only allowed synchronous calls are the one-time startup probe (nothing is drawn yet) and a saveSettings cache-miss (matching the Rust oracle's sync registry read); a theme flip redraws from the promise callback.
 
 ### 22.4 Version check (maps to 17.1 / 17.2)
 
@@ -651,7 +653,7 @@ Both TS editions share one origin (the Node edition is ported from the Bun one),
 - **`sanitize()` is the only injection firewall**: with no widget-level immunity, every external string (skill names/descriptions, API error text) passes through `sanitize()` before entering a frame (whole ANSI sequences are stripped first — CSI plus the OSC/DCS/SOS/PM/APC string sequences, an unterminated string sequence through the end of the input — then leftover control characters); the tests include injection cases.
 - The wcwidth table is an embedded codepoint interval table (`tui/wcwidth.ts`); no npm package.
 - raw mode and the VT input/output modes are enabled by Node itself on a TTY (`ENABLE_VIRTUAL_TERMINAL_PROCESSING` / `ENABLE_VIRTUAL_TERMINAL_INPUT`) — no Win32 calls; but the restore handlers must be registered **before** terminal init (mirroring the Rust panic hook preceding terminal init), and `createTerminal()` itself wraps every step after ENTER in try/catch — on failure it writes LEAVE before rethrowing.
-- **The 250 ms heartbeat timer must not be `unref`'d**: a pending promise does not keep Node's event loop alive, and a non-TTY stdin holds no handle — the heartbeat is the loop's keep-alive anchor and is cleared by the unified teardown path. The Rust/Bun editions have no such constraint.
+- **The 250 ms heartbeat timer must not be `unref`'d**: a pending promise does not keep Node's event loop alive, and a non-TTY stdin holds no handle — the heartbeat is the loop's keep-alive anchor and is cleared by the unified teardown path. **The Bun edition likewise (as of 2026-09-25)**: the former `unref()` left the loop alive only through an OpenTUI-internal 60 s keep-alive tick, an undocumented external dependency, now removed. Rust has no such constraint (tokio owns its event loop).
 - TS execution relies on Node's native type stripping, so only erasable syntax is allowed (no enum/namespace/parameter properties); `tsc --noEmit` must stay at 0 errors.
 
 ### 22.6 No single-instance mutex & minimal window on launch (maps to 20)

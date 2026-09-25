@@ -70,6 +70,8 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 | `Esc` | 返回 |
 | `q` | 退出（退出时终端一定会被恢复原状） |
 
+> **中文输入法用户**：输入法处于中文模式时，字母键（`r`/`s`/`k`/`c`/`g`/`q`）会先进拼音组字、不会送达应用。先按 `Shift` 切到英文再按——三个版本（Rust/Node/Bun）行为一致。
+
 ## 便携模式
 
 在 exe 旁放一个名为 `portable.dat` 的空文件，`settings.json` 就会存到 exe 所在目录，而不是 `%APPDATA%\KimiPlanbarTui\`。

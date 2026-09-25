@@ -353,6 +353,8 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 | `Enter` | 确认 |
 | `Esc` | 返回上一级视图 |
 
+> **中文 IME 提示（三版共有，2026-09-25 登记）**：输入法处于中文模式时，字母键（`r`/`s`/`k`/`c`/`g`/`q`）会先进拼音组字而不送达终端——按键"没反应"时先按 `Shift` 切到英文再按。这不是实现缺陷（Rust/Node/Bun 版行为一致），是终端应用与 IME 的通用交互。
+
 ---
 
 ## 13. 设置表单（settings 视图）
@@ -615,7 +617,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - `settings.json` 写入与 Rust 完全同字节：PascalCase、2-space 缩进、**无尾随换行**；读取遵循「整体失败回落默认、仅缺键才逐键默认」。
 - **`RefreshMinutes` 超出 2^53 会被钳到 `Number.MAX_SAFE_INTEGER`**：i64 边界判定全程走 `BigInt`（越出 i64 → 整体回落默认，与 Rust 的类型错误一致），但 `Number(bigint)` 在 2^53 之外会失真，故取值时钳到可精确表示的区间；Rust 侧原样保留 i64。这条差异延伸到轮询：Rust 用 `saturating_mul(60)`，极端值等于「几乎永不再刷」；TS 的延迟还要再被 `setTimeout` 的 32 位上限钳一次（`2_147_483_647` ms ≈ 24.8 天）。两版在任何合理取值（1/5/10/30）下完全一致。
 - 注册表一律 `spawn reg.exe` 并按 **GBK** 解码；自启仍只做写/删、不回读。`AppsUseLightTheme` 取 `REG_DWORD` 文本（`0x0`/`0x1`），任何异常 → light，与 Rust 的 `unwrap_or(1)` 同义。
-- 主题解析保持纯函数：`effectiveTheme(configured, system)`，系统值由 30 s 轮询写进缓存，渲染路径同步读取（Rust 在事件循环里同样是轮询）。
+- 主题解析保持纯函数：`effectiveTheme(configured, system)`，系统值由 30 s 轮询写进缓存，渲染路径同步读取（Rust 在事件循环里同样是轮询）。**Bun 版的 30 s 轮询为异步 `reg.exe` spawn（2026-09-25 起；Node 版仍为同步实现，待其自身批次迁移）**：注册表读取不得在首帧绘制后阻塞事件循环——允许的同步调用仅剩两处：启动时的首次探测（彼时首帧尚未绘制）与 saveSettings 的 cache-miss 探测（与 Rust oracle 的同步注册表读一致）；主题翻转由 promise 回调触发重绘。
 
 ### 22.4 版本检查（对应 17.1 / 17.2）
 
@@ -651,7 +653,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - **sanitize 是注入防线的唯一关卡**：没有 widget 级免疫，一切外部字符串（skill 名称/描述、API 文案）进帧前过 `sanitize()`（先整段剥 ANSI 序列——CSI 与 OSC/DCS/SOS/PM/APC 字符串序列，后者缺终止符时剥到输入末尾——再剥残余控制符）；测试含注入用例。
 - wcwidth 为内嵌码点区间表（`tui/wcwidth.ts`），不引 npm 包。
 - raw mode 与 VT 输入/输出模式由 Node 在 TTY 上自动处理（`ENABLE_VIRTUAL_TERMINAL_PROCESSING` / `ENABLE_VIRTUAL_TERMINAL_INPUT`），无需 Win32 调用；但恢复处理器必须在终端初始化**之前**注册（对齐 Rust panic hook 先于终端初始化），且 `createTerminal()` 自身对 ENTER 之后的步骤做 try/catch——失败先写 LEAVE 再抛。
-- **250 ms 心跳定时器不可 `unref`**：Node 中 pending promise 不保活事件循环，非 TTY stdin 也不持有句柄——该定时器是事件循环的保活锚点，退出时由统一销毁路径清除。Rust/Bun 版无此约束。
+- **250 ms 心跳定时器不可 `unref`**：Node 中 pending promise 不保活事件循环，非 TTY stdin 也不持有句柄——该定时器是事件循环的保活锚点，退出时由统一销毁路径清除。**Bun 版同理（2026-09-25 起）**：此前的 `unref()` 使循环存活隐式依赖 OpenTUI 内部的 60 s keep-alive tick，属未登记的外部耦合，已移除；Rust 版无此约束（tokio 自持事件循环）。
 - TS 执行依赖 Node 原生 type stripping，只允许可擦除语法（无 enum/namespace/参数属性）；`tsc --noEmit` 须保持 0 error。
 
 ### 22.6 无单实例互斥与启动缩窗（对应 20）

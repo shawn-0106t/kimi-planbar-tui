@@ -4,6 +4,7 @@ import {
   MOONLIT,
   effectiveTheme,
   parseLightThemeDword,
+  refreshSystemThemeCache,
   systemThemeSync,
 } from "../src/core/theme.ts";
 
@@ -78,5 +79,32 @@ describe("AppsUseLightTheme parsing (SPEC 20)", () => {
 
   test("the cached reader answers without throwing", () => {
     expect(["light", "dark"]).toContain(systemThemeSync());
+  });
+
+  test("async refresh: parses a 0x0 dword, falls back on failure, survives a spawn throw", async () => {
+    // Pins the 30 s poll's async reg.exe spawn (SPEC 22.3): the GBK decode
+    // path, the unwrap_or(1) exit-code fallback, and the silent catch must all
+    // hold without a real registry around.
+    const originalSpawn = Bun.spawn;
+    const regOutput = (dword: string): ReadableStream<Uint8Array> =>
+      new Response(
+        new TextEncoder().encode(
+          `\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\r\n    AppsUseLightTheme    REG_DWORD    ${dword}\r\n\r\n`,
+        ),
+      ).body as ReadableStream<Uint8Array>;
+    try {
+      Bun.spawn = (() => ({ stdout: regOutput("0x0"), exited: Promise.resolve(0) })) as unknown as typeof Bun.spawn;
+      expect(await refreshSystemThemeCache()).toBe("dark");
+
+      Bun.spawn = (() => ({ stdout: regOutput("0x1"), exited: Promise.resolve(1) })) as unknown as typeof Bun.spawn;
+      expect(await refreshSystemThemeCache()).toBe("light");
+
+      Bun.spawn = (() => {
+        throw new Error("spawn refused");
+      }) as unknown as typeof Bun.spawn;
+      expect(await refreshSystemThemeCache()).toBe("light");
+    } finally {
+      Bun.spawn = originalSpawn;
+    }
   });
 });

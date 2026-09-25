@@ -70,6 +70,8 @@ Launch `kimi-planbar-tui.exe` inside a terminal. Keys:
 | `Esc` | Back |
 | `q` | Quit (the terminal is always restored on exit) |
 
+> **Chinese IME users**: with the input method in Chinese mode, letter keys (`r`/`s`/`k`/`c`/`g`/`q`) go into pinyin composition instead of the app. Press `Shift` to switch to English first — this applies to all editions (Rust/Node/Bun alike).
+
 ## Portable mode
 
 Drop an empty file named `portable.dat` next to the exe and `settings.json` will be stored beside the exe instead of `%APPDATA%\KimiPlanbarTui\`.

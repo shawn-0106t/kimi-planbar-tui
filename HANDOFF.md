@@ -90,7 +90,7 @@ lib.symbols.SetConsoleWindowInfo(out, 1, ptr(rect));
 ## 5. 排查中的新实测发现（文档修订项）
 
 1. **Ctrl+C 在 Bun 1.4.2 已能正常退出**（WT 1.24 实测：Ctrl+C → 优雅退出，EXITCODE=0，终端完整恢复）。**SPEC 22.6 与 AGENTS.md 陷阱表中"2026-09-20 实测 Bun 完全吞掉 Ctrl+C"的记录已过时**，code-reviewer 基于该记录把 Ctrl+C 列为根因 #1，实测不复现。文档若解封应一并更新（`ts/scripts/verify/` 的复现脚本结论需重测）。
-2. **`c`（Console）/`g`（Releases）实测两次未打开浏览器**（Chrome 无新标签；`openUrl` = `Bun.spawn(["cmd","/c","start","",url], {stdout:"ignore",stderr:"ignore",windowsHide:true})`，失败静默）。**未定项**：可能是 `windowsHide:true` 下 `start` 失败、或 Bun.spawn 行为问题，待单独验证（错误被 SPEC 12.6/12.7 允许地吞掉了，属"无反馈"类缺陷）。
+2. **`c`（Console）/`g`（Releases）实测两次未打开浏览器**（Chrome 无新标签；`openUrl` = `Bun.spawn(["cmd","/c","start","",url], {stdout:"ignore",stderr:"ignore",windowsHide:true})`，失败静默）。**【已结案 2026-09-25，非代码缺陷】**用户确认根因是**中文输入法**：IME 处于中文模式时字母键（含 `c`）先进拼音组字、根本不送达应用——裸脚本下同参数 `start` 全部成功、Rust 版同场景同样"无反应"，openUrl 通道本身无恙。排查期间一度误判为 TUI 下 start 失效并把 `openUrl` 改为 `explorer.exe`，确认为 IME 后已回滚为与 Rust 1:1 的 `start` 实现。处理：README 双语按键表与 SPEC 12.7 登记"按键无反应先切英文输入法"提示（三版共有），AGENTS.md 陷阱表登记。
 3. **编译 exe 的配额 fetch 疑似失败**：cmd 宿主实测中 8 秒后 quota 行仍为 `--` 且无 "Updated" 时间戳（dev 模式 2 秒即出数据）。**【已推翻】修复验收时独占启动的 exe 8 秒内即显示实时数据（23%/5%，"Updated 16:12"）——编译版 fetch 正常，当时的观察只是首启时序波动。**
 4. **开机自启指向的是 Rust 版 exe**（HKCU Run `KimiPlanbarTui` = `rust\target\release\kimi-planbar-tui.exe`），故日常自启不受本故障影响；settings.json 为两版共享（`AutoStart: true`）。
 
@@ -135,7 +135,7 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 2. ✅ `renderer.ts` 传 `useMouse: false`——启动序列不再含 `?1000h/?1002h/?1003h/?1006h`（管道实测）。
 3. ✅ 恢复处理器前移到 `makeRenderer()` 之前，闭包对 renderer/raw-mode 还原句柄空值容忍。
 4. ✅ 文档同步：SPEC.md / SPEC_EN.md（第 1/3/7/9/20/22 章相关条目、22.5 新增 mouse tracking 与恢复处理器条目、22.6 修订缩窗传参与 Ctrl+C 记录）、AGENTS.md（解冻、陷阱表、验收清单）、ts/README.md、版本 bump 0.1.2（`bun.lock` 不记录 workspace 版本，无需同步）。
-5. 遗留（未修，属低优先级改进）：§4 的三个 Minor（主题轮询 `spawnSync` 阻塞、heartbeat `unref` 隐式依赖、keypress handler 无兜底 try/catch）与 §5-2（`openUrl` 本机未生效待查）——留待后续维护批次。
+5. ✅ 遗留收尾（2026-09-25 第二批次完成）：① 30 s 主题轮询改异步 `reg.exe` spawn（同步版仅启动首探测保留，SPEC 22.3）；② heartbeat/themeTimer 移除 `unref()`（消除对 OpenTUI 内部 keep-alive 的隐式依赖，SPEC 22.5）；③ keypress handler 链补静默兜底 try/catch（吞异常不污染画面）；④ `openUrl` 结案——IME 根因（见 §5-2），代码回滚为 `start` 与 Rust 1:1，仅文档登记。`bun run test` 272 通过 / 0 失败。
 
 ## 10. 修复落地记录（2026-09-25）
 
