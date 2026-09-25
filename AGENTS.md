@@ -60,8 +60,11 @@ Data contract shared with the tray edition: same credential chain, same `setting
 │   ├── SPEC.md                 # authoritative behavior contract (Chinese), shared by the Rust and TS editions
 │   │                           # chapter 22 registers where each TS edition is NOT equivalent to Rust
 │   ├── SPEC_EN.md              # English translation, identical chapter numbering
-│   └── REVIEW-M1.md            # M1 core-layer audit ledger: 5 Major + 7 Minor, plus a measured
-│                               # status table (file:line per item, incl. what is deliberately untested)
+│   ├── REVIEW-M1.md            # M1 core-layer audit ledger: 5 Major + 7 Minor, plus a measured
+│   │                           # status table (file:line per item, incl. what is deliberately untested)
+│   └── REVIEW-RUST.md          # 2026-09-25 full audit of the Rust edition: 1 Major (fmt_yuan i64::MIN
+│                               # recursion → terminal stranding) + 5 Minor + 3 Suggestion, test-coverage
+│                               # gaps, and a backfill table (all unfixed, pending maintainer decision)
 ├── HANDOFF.md                  # 2026-09-25 incident record: Bun edition "unusable" root cause
 │                               # (shrink.ts FFI pointer bug → segfault on owned-console launch), evidence chain, fixes
 ├── AGENTS.md / README.md / README_CN.md

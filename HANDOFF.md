@@ -178,3 +178,12 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 **值得发 0.1.3 的时机**（满足其一）：① Go 版落地（第四实现登场 + Bun 收尾，一个有内容的版本）；② 出现下一个用户可感知的修复；③ 维护者实际改用 `theme=system` 且在意 30 s 一次的微顿挫。
 
 **未来发版 checklist**（本机已全自动跑通一次）：`ts/package.json` bump → `bun run test` → `bun run build:exe` → `sha256sum` 生成 `SHA256SUMS.txt`（gitignored）→ annotated tag 推送 → `gh release create <tag> ts/dist/kpt-tui.exe SHA256SUMS.txt --title ... --notes-file ...`（本机 gh 2.97.0 已认证 `shawn-0106t`，全程无需浏览器）→ `gh release view` 核对附件字节数。发布前冒烟：`./dist/kpt-tui.exe --test-fetch`（`no-token` 需先跑一次 `kimi` 命令刷新 CLI token，属环境态非构建缺陷——Rust 版可作对照）。
+
+## 13. Rust 版全量审查（2026-09-25）
+
+对推荐版 `rust/`（oracle 基准）做了首次全量独立审查，台账见 **`docs/REVIEW-RUST.md`**。结论：**无 Blocker；1 Major / 5 Minor / 3 Suggestion**，`cargo test` 15/15、`--test-fetch`/`--test-update` 实测正常，总体称职、修复 Major 后可继续信任其 oracle 地位。
+
+- **Major A（建议尽快修）**：`format.rs:30-32` `fmt_yuan` 对 `i64::MIN` 取负溢出 → 无限递归 → 栈溢出 abort 且不执行 panic hook → **raw mode 终端搁浅**（SPEC 20 最严重事故）。触发条件为畸形 payload（`priceInCents == "-9223372036854775808"` + 月度限额启用）；ts-nodejs 的 bigint 版反而免疫——oracle 比移植版更脆。修法一行级：`checked_neg()` 或 `i128` 取绝对值 + 回归测试。
+- **Minor ×5**：缩窗转义在 VT 启用前写入（conhost 双击启动回显一行乱码）；settings.json 非原子写且与注册表自启无对账；`parse_reset_time` 宽松格式是 SPEC 16.3 超集（SPEC 文本滞后，golden 已锁）；percent ≥1000% 吞 `%` 后缀（违反 12.2）；panic hook 全局生效致后台任务 panic 可拆存活中的终端（当前无可达路径，防御纵深缺口）。
+- **测试覆盖缺口**：`format_reset`/`fmt_percent` 在 oracle 侧零测试；credentials/settings/polling/update 的防御性路径全部无测试（ts 侧反而有对应测试）。
+- **修复状态**：全部未修，待维护者拍板修复批次；台账含逐项 file:line、修法与回填表格（参照 REVIEW-M1 惯例）。
