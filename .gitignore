@@ -13,5 +13,9 @@ node_modules/
 ts/dist/
 ts-nodejs/dist/
 
+# go/ edition
+go/dist/
+go/*.syso
+
 # terminal-probe stderr captures (launch wrappers redirect here)
 *.err.log
