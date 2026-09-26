@@ -5,6 +5,7 @@
 mod app;
 mod credentials;
 mod format;
+mod http;
 mod polling;
 mod quota;
 mod settings;
@@ -25,6 +26,10 @@ fn dotnet_bool(b: bool) -> &'static str {
 }
 
 fn block_on<F: std::future::Future>(fut: F) -> F::Output {
+    // This expect is safe only because the terminal is not initialized yet —
+    // the panic hook (with its terminal restore) is installed later in
+    // app::run. Keep that ordering; do not move terminal init before here
+    // (REVIEW-RUST coverage-gap note).
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

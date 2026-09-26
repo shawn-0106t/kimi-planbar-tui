@@ -365,6 +365,8 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 全屏视图，标题 `"Kimi Planbar TUI Settings"`；`↑/↓` 在字段间移动，`←/→` 或 `Enter` 切换当前字段取值，`Esc` 放弃更改返回 dashboard。
 
+页脚（固定一行）：`↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel · q Quit`——`q` 为全局退出键，任意视图按下直接退出应用。表单内容为 9 行，在 72×13 最小窗口（20）下复选框、`Save` 动作行与页脚必须全部可见。
+
 ### 13.2 设置项（选项与默认值与托盘版 SPEC 13.2 完全一致）
 
 | 设置项 | 控件形态 | 选项 | 默认值 |
@@ -375,6 +377,7 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 | 保存 | 动作行 `"Save"`（`Enter` 触发） | — | — |
 
 - 保存动作顺序不变：写 `settings.json` → 应用自启（18.3）→ 应用主题 → 重排刷新定时器 → 返回 dashboard。
+- 写盘失败（如只读的 portable 目录）时保留草稿、停留在设置页并跳过后续步骤，不返回 dashboard；页脚临时替换为 `Save failed — could not write settings.json · Esc Cancel · q Quit`（再次保存成功、按 Esc 或重新打开表单时恢复）——失败绝不表现为已保存，也不能是无提示的死键。
 - 打开表单时按当前设置回填选中状态。
 
 ---
@@ -418,7 +421,7 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 - **5 小时段**：`root.limits`（数组，取第 0 个元素的 `detail` 对象）→ `parse_segment`
 - **周段**：`root.usage`（对象）→ `parse_segment`
-- `parse_segment`：`percent = used/limit*100`（`used`、`limit` 兼容数字或数字字符串，缺失按 0；`limit<=0` 时按 1 防除零）；`resetTime`（字符串，RFC 3339 解析）→ `reset_at`
+- `parse_segment`：`percent = used/limit*100`（`used`、`limit` 兼容数字或数字字符串，缺失按 0；`limit<=0` 时按 1 防除零）；`resetTime`（字符串，RFC 3339 优先，失败后按宽松阶梯解析：空格分隔的日期时间 + 宽松偏移（`±HH:MM` / `±HHMM`）、可带小数秒、无偏移按本地时间——事实契约以 `reset_time.txt` golden 为准）→ `reset_at`
 - **Extra Usage**：`root.boosterWallet`（对象）：
   - 非对象/缺失 → `state = NotActivated`（"Not activated"）
   - `isEnabled == false` → `NotActivated`（防御：booster 未启用时 `amountLeft` 是"月度上限-已用"估算值而非真实余额，必须视为未开通）
@@ -515,7 +518,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - `RefreshMinutes`：int，可选值 1/5/10/30，默认 5
 - `AutoStart`：bool，默认 false
 - 加载：文件不存在或反序列化失败 → 全部回落默认值（异常静默吞掉）
-- 保存：先创建目录再整体覆写（异常静默吞掉）
+- 保存：先创建目录，再写同目录临时文件并以 `rename` 原子替换目标文件（写盘中途崩溃不再留下截断的 settings.json）；写盘成功与否向上返回，失败时 UI 侧行为见 13.2，其余 IO 异常静默吞掉
 
 ### 18.3 开机自启
 
@@ -523,6 +526,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - 键名：`KimiPlanbarTui`
 - `AutoStart=true` → 值 = `"{exe 完整路径}"`（带引号）
 - `AutoStart=false` → 删除该值（不存在不报错）
+- 启动对账（settings.json 为准）：`AutoStart=false` 而注册表值存在 → 删除；`AutoStart=true` 而注册表值缺失 → 写入。已存在的值启动时不重指向（避免每次启动以"恰好在运行的 exe"覆写路径）；显式保存时仍按上面两条规则执行
 - 异常静默吞掉
 
 ---
@@ -544,7 +548,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ## 20. 其他实现细节（TUI 专有）
 
-- **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。终端被留在 raw mode 是 TUI 最严重的事故。两个 TS 版的等价机制（Bun 版需 `bun:ffi SetConsoleMode` 并在每次输入/重绘前重申；Node 版由 Node 自身处理 raw mode，但须保证恢复处理器先于终端初始化注册）见 22.5。
+- **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。Windows 控制台强制路径不经过 panic hook：`SetConsoleCtrlHandler` 注册的处理器对 `CTRL_C_EVENT`（进程外投递的 Ctrl+C；raw mode 下键盘 Ctrl+C 不产生控制台事件，仍走按键路径）、`CTRL_BREAK_EVENT`（Ctrl+Break）与 `CTRL_CLOSE_EVENT`（关闭控制台窗口）执行同一恢复序列，然后交还默认终止（2026-09-26 起）。终端被留在 raw mode 是 TUI 最严重的事故。两个 TS 版的等价机制（Bun 版需 `bun:ffi SetConsoleMode` 并在每次输入/重绘前重申；Node 版由 Node 自身处理 raw mode，但须保证恢复处理器先于终端初始化注册）见 22.5。
 - **启动时最小窗口（72×13）**：`run()` 起始、终端初始化之前，把窗口收缩到线框布局的最小尺寸（72 列 × 13 行，常量 `MIN_WIN_COLS`/`MIN_WIN_ROWS`）。**守卫**：仅当进程独占控制台时执行——`GetConsoleProcessList` 返回恰好 1 个附加进程（双击/新开窗口启动）；从已有终端会话（cmd / pwsh / Git Bash / 其他 WT 标签页）启动时控制台是共享的，绝不改动用户窗口。两条 best-effort 通道，异常静默吞掉：(a) xterm 窗口操作转义 `ESC [ 8 ; 13 ; 72 t`（Windows Terminal 1.22+ 支持）；(b) conhost Win32 序列：先 `SetConsoleWindowInfo` 缩视口到 1×1 → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` 设为完整 72×13 矩形。**TS 版（Bun）同判据同通道**：`GetConsoleProcessList` 经 `bun:ffi` 调用，FFI 不可用时退回终端环境变量启发式（`SMALL_RECT` 指针传参的手工打包见 22.6）。**TS 版（Node）**：无 Win32 binding，守卫只用环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` 全缺才缩），通道仅 (a)——且经实测当前 ConPTY 不透传该窗口操作转义，在本机为优雅 no-op（见 22.6）。
 - **事件驱动重绘 + 250ms 心跳**：每个事件（键盘、配额 mpsc、版本 mpsc、skills mpsc、主题 tick、resize）处理后立即在事件循环顶部重绘一帧——不存在合并/节流（任意事件都会即时出帧）。另有一个 250ms 心跳 tick（`draw_tick`）在无事件时唤醒循环，保证倒计时文案持续刷新；倒计时文案随每次重绘重算（输入 `reset_at - now`），无独立 1Hz 定时器。
 - **系统主题 30s 轮询**：crossterm 无系统事件源，`theme=system` 时以 30s 间隔轮询注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` 的 `AppsUseLightTheme`（DWORD，0=dark，1=light，缺失默认 1），替代托盘版的 `WM_SETTINGCHANGE` 实时监听；`theme=light|dark` 时该轮询不影响配色。
@@ -575,7 +579,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ### 21.3 呈现
 
-- 顶部汇总行：`N skills` + 重扫键提示。
+- 顶部汇总行：`N skills`（扫描中为 `Scanning...`）；重扫键提示位于页脚（`r Rescan`）。
 - 列表按来源分组（组内按名称不区分大小写排序），`↑/↓` 滚动只读；每项：名称（加粗）+ 描述（超出终端宽度的描述截断显示）。
 - 全部颜色走 `theme.rs` 调色板，自动跟随 Moonlit/Moondark。
 - 外部数据（skill 名称/描述）一律经 ratatui 文本 widget 渲染，不拼终端转义序列。
@@ -598,7 +602,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ### 22.2 数据与 API（对应 16.2 / 16.3 / 16.4）
 
-两个 TS 版同源（Node 版平移自 Bun 版），机制本应一致。**当前状态（2026-09-20 平移完成）**：M1 审查的 core 修复——JSON 深度上限、resetTime 阶梯、`RefreshMinutes` 钳位、polling clamp、skills 4 KiB 读——已平移到 `ts-nodejs/`（`reset_time.txt` golden 同步扩到 28 行，与 `ts/` 同一份）。唯一保留的差异：**非 2xx 排空 body 仍为 Bun 版独有**，Node 版有意不排空（由 `ts-nodejs/test/quota.test.ts` 的 `bodyUsed === false` 用例钉死），见下表对应行。下表其余各行对两个 TS 版同时成立。
+两个 TS 版同源（Node 版平移自 Bun 版），机制本应一致。**当前状态（2026-09-20 平移完成）**：M1 审查的 core 修复——JSON 深度上限、resetTime 阶梯、`RefreshMinutes` 钳位、polling clamp、skills 4 KiB 读——已平移到 `ts-nodejs/`（`reset_time.txt` golden 同步扩到 29 内容行——文件无尾换行，`wc -l` 计 28，与 `ts/` 同一份）。唯一保留的差异：**非 2xx 排空 body 仍为 Bun 版独有**，Node 版有意不排空（由 `ts-nodejs/test/quota.test.ts` 的 `bodyUsed === false` 用例钉死），见下表对应行。下表其余各行对两个 TS 版同时成立。
 
 | Rust 机制 | TS 等价实现 | 锁定点 |
 |---|---|---|

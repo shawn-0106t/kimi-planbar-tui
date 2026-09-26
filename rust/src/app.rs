@@ -31,6 +31,8 @@ use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use windows::core::BOOL;
+use windows::Win32::System::Console::SetConsoleCtrlHandler;
 
 /// SPEC 12.7: Console button URL.
 pub const CONSOLE_URL: &str = "https://www.kimi.com/code/console?from=kfc_overview_topbar";
@@ -65,6 +67,9 @@ pub struct App {
     pub settings_draft: Option<SettingsData>,
     /// Selected settings row: 0 Theme, 1 Interval, 2 AutoStart, 3 Save.
     pub settings_sel: usize,
+    /// True while the last Save attempt failed to write settings.json; the
+    /// settings view swaps its footer to a "Save failed" hint (SPEC 13.2).
+    pub settings_save_failed: bool,
     /// Flattened skills rows (group headers + items) for the skills view.
     pub skills_rows: Vec<ui::skills_view::Row>,
     /// Index into skills_rows of the highlighted entry.
@@ -74,7 +79,7 @@ pub struct App {
 }
 
 impl App {
-    fn new(state: Arc<AppState>) -> Self {
+    pub(crate) fn new(state: Arc<AppState>) -> Self {
         App {
             state,
             view: View::Dashboard,
@@ -82,6 +87,7 @@ impl App {
             update: None,
             settings_draft: None,
             settings_sel: 0,
+            settings_save_failed: false,
             skills_rows: Vec::new(),
             skills_sel: 0,
             skills_loading: false,
@@ -161,15 +167,15 @@ fn manual_refresh(app: &App, quota_tx: &mpsc::Sender<QuotaResult>, update_tx: &m
     tokio::spawn(async move {
         polling::safe_refresh(&state, &tx).await;
     });
-    spawn_update_check(&app.state, update_tx);
+    spawn_update_check(update_tx);
 }
 
-fn spawn_update_check(state: &Arc<AppState>, update_tx: &mpsc::Sender<UpdateStatus>) {
-    let state = state.clone();
+// (REVIEW-RUST Suggestion 6: AppState.update was write-only dead state —
+// the UI reads App.update delivered through this channel instead.)
+fn spawn_update_check(update_tx: &mpsc::Sender<UpdateStatus>) {
     let tx = update_tx.clone();
     tokio::spawn(async move {
         let st = update::check().await;
-        *state.update.write().unwrap() = st.clone();
         let _ = tx.send(st).await;
     });
 }
@@ -209,11 +215,19 @@ fn cycle<T: PartialEq + Copy>(options: &[T], current: T, dir: i64) -> T {
 
 /// Settings save action order (SPEC 13.2): write settings.json ->
 /// ApplyAutoStart -> apply theme -> reschedule the polling timer.
+/// REVIEW-RUST Minor 2: on a disk write failure the draft is kept and the
+/// form stays open with a "Save failed" footer hint — returning to the
+/// dashboard would imply the settings were saved when they were not.
 fn save_settings(app: &mut App) {
     let Some(draft) = app.settings_draft.take() else {
         return;
     };
-    settings::save(&draft);
+    if !settings::save(&draft) {
+        app.settings_draft = Some(draft);
+        app.settings_save_failed = true;
+        return;
+    }
+    app.settings_save_failed = false;
     settings::apply_auto_start(&draft);
     let eff = theme::effective(&draft.theme);
     *app.state.settings.write().unwrap() = draft;
@@ -244,6 +258,7 @@ fn handle_key(
             KeyCode::Char('s') => {
                 app.settings_draft = Some(app.state.settings.read().unwrap().clone());
                 app.settings_sel = 0;
+                app.settings_save_failed = false;
                 app.view = View::Settings;
             }
             KeyCode::Char('k') => {
@@ -262,6 +277,7 @@ fn handle_key(
             match key.code {
                 KeyCode::Esc => {
                     app.settings_draft = None;
+                    app.settings_save_failed = false;
                     app.view = View::Dashboard;
                 }
                 KeyCode::Up => app.settings_sel = app.settings_sel.saturating_sub(1),
@@ -339,14 +355,20 @@ fn resize_owned_console() {
         if GetConsoleProcessList(&mut procs) != 1 {
             return;
         }
-        use std::io::Write;
-        let _ = write!(io::stdout(), "\x1b[8;{MIN_WIN_ROWS};{MIN_WIN_COLS}t");
-        let _ = io::stdout().flush();
         let Ok(out) = GetStdHandle(STD_OUTPUT_HANDLE) else {
             return;
         };
         if out == HANDLE::default() {
             return;
+        }
+        // REVIEW-RUST Minor 1: crossterm enables VT processing lazily (on the
+        // first ANSI command), so on conhost this escape would be echoed as
+        // literal text into the primary buffer. Enable it ourselves; on
+        // failure skip channel (a) and shrink through the Win32 sequences only.
+        if enable_vt_processing(out) {
+            use std::io::Write;
+            let _ = write!(io::stdout(), "\x1b[8;{MIN_WIN_ROWS};{MIN_WIN_COLS}t");
+            let _ = io::stdout().flush();
         }
         let tiny = SMALL_RECT { Left: 0, Top: 0, Right: 0, Bottom: 0 };
         let _ = SetConsoleWindowInfo(out, true, &tiny);
@@ -356,19 +378,82 @@ fn resize_owned_console() {
     }
 }
 
+/// Turn on ENABLE_VIRTUAL_TERMINAL_PROCESSING for the console output handle
+/// (REVIEW-RUST Minor 1). Returns false when the mode cannot be read or set —
+/// the caller must then not write ANSI escapes (conhost would echo them).
+fn enable_vt_processing(out: windows::Win32::Foundation::HANDLE) -> bool {
+    use windows::Win32::System::Console::{
+        GetConsoleMode, SetConsoleMode, CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+    };
+    unsafe {
+        let mut mode = CONSOLE_MODE::default();
+        if GetConsoleMode(out, &mut mode).is_err() {
+            return false;
+        }
+        SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING).is_ok()
+    }
+}
+
+/// Windows console ctrl handler (REVIEW-RUST Minor 15 + Suggestion 21):
+/// Ctrl+Break arrives as CTRL_BREAK_EVENT regardless of raw mode, closing the
+/// console window delivers CTRL_CLOSE_EVENT, and an out-of-band
+/// GenerateConsoleCtrlEvent can deliver CTRL_C_EVENT — none of these run the
+/// RAII guard or the panic hook, so without this handler the terminal would
+/// strand (SPEC 20: every exit path restores). Keyboard Ctrl+C is unaffected:
+/// raw mode clears ENABLE_PROCESSED_INPUT, so it still arrives as a plain key
+/// event routed through app.quit. Best-effort: run the same restore sequence
+/// as the panic hook, then return FALSE so the default termination proceeds.
+/// The OS invokes this on its own thread while the main loop may be mid-draw;
+/// interleaved output is acceptable on a dying process. CTRL_LOGOFF_EVENT /
+/// CTRL_SHUTDOWN_EVENT are deliberately not handled: session teardown
+/// destroys the console with the process, leaving nothing to strand.
+extern "system" fn console_ctrl_handler(ctrl: u32) -> BOOL {
+    const CTRL_C_EVENT: u32 = 0;
+    const CTRL_BREAK_EVENT: u32 = 1;
+    const CTRL_CLOSE_EVENT: u32 = 2;
+    if ctrl == CTRL_C_EVENT || ctrl == CTRL_BREAK_EVENT || ctrl == CTRL_CLOSE_EVENT {
+        let _ = execute!(io::stdout(), crossterm::cursor::Show, LeaveAlternateScreen);
+        let _ = disable_raw_mode();
+    }
+    BOOL(0)
+}
+
 pub async fn run() -> io::Result<()> {
+    // REVIEW-RUST Minor 15: cover the console forced-exit paths (Ctrl+Break,
+    // window close) that bypass TerminalRestore and the panic hook.
+    unsafe {
+        let _ = SetConsoleCtrlHandler(Some(console_ctrl_handler), true);
+    }
+
     resize_owned_console();
 
     let settings_data = settings::load();
+    // Registry reconciliation (REVIEW-RUST Minor 2): settings.json is the
+    // source of truth; heal a stale HKCU Run value left behind by a legacy
+    // non-atomic write (or manual edit) before the UI ever renders it.
+    settings::reconcile_auto_start(&settings_data);
     let eff = theme::effective(&settings_data.theme);
     let state = Arc::new(AppState::new(settings_data, eff));
 
     // A stranded terminal is the worst TUI bug (SPEC 20): the panic hook must
     // be installed BEFORE terminal init so even an init-time panic restores.
+    // Whether the hook may skip the restore depends on the panic strategy
+    // (REVIEW-RUST Minor 5):
+    // - debug builds unwind: a panic in a tokio worker task is swallowed by
+    //   tokio and the app keeps running, so only the MAIN thread may restore —
+    //   tearing down raw mode / alternate screen from a worker would strip a
+    //   live terminal.
+    // - release builds run with panic = "abort" (Cargo.toml): every panic
+    //   kills the whole process right after this hook, so the restore happens
+    //   unconditionally — it is the last chance (code-review regression fix).
+    let main_thread = std::thread::current().id();
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = execute!(io::stdout(), crossterm::cursor::Show, LeaveAlternateScreen);
-        let _ = disable_raw_mode();
+        let skip_restore = cfg!(debug_assertions) && std::thread::current().id() != main_thread;
+        if !skip_restore {
+            let _ = execute!(io::stdout(), crossterm::cursor::Show, LeaveAlternateScreen);
+            let _ = disable_raw_mode();
+        }
         default_hook(info);
     }));
 
@@ -384,7 +469,7 @@ pub async fn run() -> io::Result<()> {
     let (skills_tx, mut skills_rx) = mpsc::channel::<Vec<SkillInfo>>(4);
 
     tokio::spawn(polling::run(state.clone(), quota_tx.clone()));
-    spawn_update_check(&state, &update_tx);
+    spawn_update_check(&update_tx);
 
     let mut app = App::new(state.clone());
     let mut events = EventStream::new();

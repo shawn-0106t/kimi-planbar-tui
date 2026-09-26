@@ -5,13 +5,11 @@
 //  - isEnabled == false must be reported as NotActivated (KimiCodeBar v1.1.1 bug)
 
 use chrono::{DateTime, Local};
-use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
-use std::sync::OnceLock;
-use std::time::Duration;
 
 use crate::credentials;
+use crate::http;
 
 const USAGES_URL: &str = "https://api.kimi.com/coding/v1/usages";
 
@@ -75,18 +73,11 @@ impl QuotaResult {
     }
 }
 
-fn http_client() -> Option<&'static Client> {
-    static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| Client::builder().timeout(Duration::from_secs(10)).build().ok())
-        .as_ref()
-}
-
 pub async fn fetch() -> QuotaResult {
     let Some(token) = credentials::load_token() else {
         return QuotaResult::failed("no-token");
     };
-    let Some(client) = http_client() else {
+    let Some(client) = http::shared_client() else {
         return QuotaResult::failed("HttpRequestException");
     };
     let resp = match client
@@ -363,5 +354,21 @@ mod tests {
         assert!(parse_reset_time("2030-01-01 00:00:00 +08:00").is_some());
         assert!(parse_reset_time("2030-01-01 00:00:00").is_some()); // no offset = local
         assert!(parse_reset_time("not a date").is_none());
+    }
+
+    /// REVIEW-RUST Major A entry path: priceInCents == i64::MIN (string form)
+    /// must parse; the dashboard then renders it through fmt_yuan without
+    /// negation overflow (pinned in format.rs tests).
+    #[test]
+    fn monthly_extreme_cents_string_parses() {
+        let info = parse_extra(Some(&json!({
+            "isEnabled": true,
+            "balance": { "amountLeft": "0" },
+            "monthlyChargeLimitEnabled": true,
+            "monthlyUsed": { "priceInCents": "-9223372036854775808" },
+            "monthlyChargeLimit": { "priceInCents": "10000" }
+        })));
+        assert_eq!(info.monthly_used_cents, Some(i64::MIN));
+        assert_eq!(info.monthly_limit_cents, Some(10000));
     }
 }

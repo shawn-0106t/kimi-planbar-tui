@@ -62,6 +62,11 @@ pub fn load_token() -> Option<String> {
     // 2) config.toml fallback: line-by-line parse (not a full TOML parser)
     let cfg_path = kimi.join("config.toml");
     let text = fs::read_to_string(&cfg_path).ok()?;
+    parse_config_provider(&text)
+}
+
+/// config.toml ladder, split out for unit tests (pure text -> api_key).
+fn parse_config_provider(text: &str) -> Option<String> {
     let kv = Regex::new(r#"^(base_url|api_key)\s*=\s*"([^"]*)""#).ok()?;
     let mut section: Option<String> = None;
     let mut base_url: Option<String> = None;
@@ -73,7 +78,14 @@ pub fn load_token() -> Option<String> {
             if let Some(found) = match_provider(section.as_deref(), base_url.as_deref(), api_key.as_deref()) {
                 return Some(found);
             }
-            section = Some(line.trim_matches(|c| c == '[' || c == ']').to_string());
+            // REVIEW-RUST Suggestion 7: strip the brackets, then trim — the
+            // real CLI writes "[providers.x]" compact, but "[ providers.x ]"
+            // used to leave padding in the section name and miss the match.
+            section = Some(
+                line.trim_matches(|c| c == '[' || c == ']')
+                    .trim()
+                    .to_string(),
+            );
             base_url = None;
             api_key = None;
             continue;
@@ -97,5 +109,39 @@ fn match_provider(section: Option<&str>, base_url: Option<&str>, api_key: Option
             Some(k.to_string())
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// REVIEW-RUST Suggestion 7 regression: compact (real CLI shape) and
+    /// bracket-padded section names must both match.
+    #[test]
+    fn config_toml_compact_and_padded_sections() {
+        let compact = "[providers.kimi]\nbase_url = \"https://api.kimi.com/coding/v1\"\napi_key = \"key-1\"\n";
+        assert_eq!(parse_config_provider(compact), Some("key-1".to_string()));
+
+        let padded = "[ providers.kimi ]\nbase_url = \"https://api.kimi.com/coding/v1\"\napi_key = \"key-2\"\n";
+        assert_eq!(parse_config_provider(padded), Some("key-2".to_string()));
+    }
+
+    /// Section settlement: a non-matching section must not leak into the
+    /// next one; an empty api_key is rejected (SPEC 16.2).
+    #[test]
+    fn config_toml_section_settlement() {
+        let first_match_wins = "[providers.kimi]\nbase_url = \"https://api.kimi.com/coding/v1\"\napi_key = \"key-3\"\n\
+            [providers.other]\nbase_url = \"https://api.kimi.com/coding/v1\"\napi_key = \"later\"\n";
+        assert_eq!(parse_config_provider(first_match_wins), Some("key-3".to_string()));
+
+        let skips_unrelated = "[providers.other]\nbase_url = \"https://example.com/v1\"\napi_key = \"ignored\"\n\
+            [providers.kimi]\nbase_url = \"https://api.kimi.com/coding/v1\"\napi_key = \"key-4\"\n";
+        assert_eq!(parse_config_provider(skips_unrelated), Some("key-4".to_string()));
+
+        let empty_key = "[providers.kimi]\nbase_url = \"https://api.kimi.com/coding/v1\"\napi_key = \"\"\n";
+        assert_eq!(parse_config_provider(empty_key), None);
+
+        assert_eq!(parse_config_provider("not toml at all"), None);
     }
 }

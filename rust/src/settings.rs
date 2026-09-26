@@ -55,12 +55,26 @@ pub fn load() -> SettingsData {
     serde_json::from_str(&text).unwrap_or_default()
 }
 
-pub fn save(data: &SettingsData) {
+/// Write settings.json and report success. REVIEW-RUST Minor 2: the write is
+/// atomic-ish — temp file in the same directory, then rename over the target —
+/// so a crash mid-write can never leave a truncated settings.json behind (a
+/// truncated file would silently fall back to all defaults on next load).
+pub fn save(data: &SettingsData) -> bool {
     let dir = config_dir();
     let _ = fs::create_dir_all(&dir);
-    if let Ok(json) = serde_json::to_string_pretty(data) {
-        let _ = fs::write(file_path(), json);
+    let Ok(json) = serde_json::to_string_pretty(data) else {
+        return false;
+    };
+    let tmp = dir.join(format!("settings.json.{}.tmp", std::process::id()));
+    if fs::write(&tmp, &json).is_err() {
+        let _ = fs::remove_file(&tmp); // drop a half-written temp, symmetric with the rename-failure path (REVIEW-RUST Suggestion 13)
+        return false;
     }
+    if fs::rename(&tmp, file_path()).is_err() {
+        let _ = fs::remove_file(&tmp); // best-effort cleanup, keep the dir tidy
+        return false;
+    }
+    true
 }
 
 /// HKCU Run key autostart (per-user, no UAC). All errors silently swallowed.
@@ -81,5 +95,44 @@ pub fn apply_auto_start(data: &SettingsData) {
         }
     } else {
         let _ = key.delete_value("KimiPlanbarTui");
+    }
+}
+
+/// Startup reconciliation (REVIEW-RUST Minor 2): settings.json is the source
+/// of truth, the HKCU Run value the executed contract. A legacy non-atomic
+/// write (or a manual registry edit) could leave the two diverged — e.g. the
+/// value stuck on `true` while settings.json fell back to AutoStart=false, so
+/// the machine kept autostarting an app whose settings screen said off. Heal
+/// both directions, without repointing an existing value (a stale exe path
+/// self-corrects on the next explicit save; repointing at every launch would
+/// let a dev build fight the installed one over the value):
+/// - AutoStart=false but a Run value exists -> delete it (apply_auto_start)
+/// - AutoStart=true but the Run value is missing -> write it (apply_auto_start)
+/// All errors silently swallowed (code-style baseline).
+pub fn reconcile_auto_start(data: &SettingsData) {
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE};
+    use winreg::RegKey;
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(key) = hkcu.open_subkey_with_flags(
+        r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+        KEY_QUERY_VALUE | KEY_SET_VALUE,
+    ) else {
+        return;
+    };
+    // Existence check by value NAME, not type: get_value::<String> would
+    // report a manually written REG_DWORD as "missing" and skip the delete
+    // (code-review note on reconcile asymmetry).
+    let existing = key.get_raw_value("KimiPlanbarTui").is_ok();
+    let needs_apply = match (data.auto_start, existing) {
+        // AutoStart=true but the value is missing -> write it
+        (true, false) => true,
+        // AutoStart=false but the value exists -> delete it
+        (false, true) => true,
+        // In sync; AutoStart=true with an existing value is deliberately left
+        // alone (no repointing at every launch, see above)
+        _ => false,
+    };
+    if needs_apply {
+        apply_auto_start(data);
     }
 }

@@ -365,6 +365,8 @@ The tray edition's settings window is translated into a terminal form: options a
 
 Full-screen view, title `"Kimi Planbar TUI Settings"`; `↑/↓` move between fields, `←/→` or `Enter` change the focused field's value, `Esc` discards changes and returns to the dashboard.
 
+Footer (fixed single line): `↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel · q Quit` — `q` is the global quit key and exits the app from any view. The form is 9 content lines; the checkbox, the `Save` action row, and the footer must all be visible at the 72×13 minimal window (20).
+
 ### 13.2 Settings items (options and defaults identical to tray-edition SPEC 13.2)
 
 | Setting | Control shape | Options | Default |
@@ -375,6 +377,7 @@ Full-screen view, title `"Kimi Planbar TUI Settings"`; `↑/↓` move between fi
 | Save | action row `"Save"` (triggered by `Enter`) | — | — |
 
 - Save action order is unchanged: write `settings.json` → apply autostart (18.3) → apply theme → reschedule the refresh timer → return to the dashboard.
+- On a disk write failure (e.g. a read-only portable directory) the draft is kept, the form stays open, and the remaining steps are skipped — the dashboard is not shown; the footer is temporarily replaced with `Save failed — could not write settings.json · Esc Cancel · q Quit` (restored on the next successful save, Esc, or re-opening the form). A failed save must never read as saved, nor be a silent dead key.
 - Opening the form pre-fills selections from the current settings.
 
 ---
@@ -418,7 +421,7 @@ Full-screen view, title `"Kimi Planbar TUI Settings"`; `↑/↓` move between fi
 
 - **5-hour segment**: `root.limits` (array, take element 0's `detail` object) → `parse_segment`
 - **Weekly segment**: `root.usage` (object) → `parse_segment`
-- `parse_segment`: `percent = used/limit*100` (`used`, `limit` accept numbers or numeric strings, missing treated as 0; `limit<=0` treated as 1 to avoid divide-by-zero); `resetTime` (string, RFC 3339 parse) → `reset_at`
+- `parse_segment`: `percent = used/limit*100` (`used`, `limit` accept numbers or numeric strings, missing treated as 0; `limit<=0` treated as 1 to avoid divide-by-zero); `resetTime` (string, RFC 3339 first, then a lenient ladder: space-separated datetime with lenient offsets (`±HH:MM` / `±HHMM`), optional fractional seconds, no offset = local time — the de-facto contract is pinned by the `reset_time.txt` golden) → `reset_at`
 - **Extra Usage**: `root.boosterWallet` (object):
   - Not an object / missing → `state = NotActivated` ("Not activated")
   - `isEnabled == false` → `NotActivated` (defense: when the booster is not enabled, `amountLeft` is a "monthly limit minus used" estimate, not a real balance — must be treated as not activated)
@@ -515,7 +518,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - `RefreshMinutes`: int, allowed values 1/5/10/30, default 5
 - `AutoStart`: bool, default false
 - Load: missing file or deserialization failure → fall back to all defaults (errors silently swallowed)
-- Save: create the directory first, then overwrite the whole file (errors silently swallowed)
+- Save: create the directory first, then write a temp file in the same directory and `rename` it over the target (a crash mid-write can no longer leave a truncated settings.json); success/failure is returned to the caller — the UI-side behavior on failure is per 13.2, other IO errors stay silently swallowed
 
 ### 18.3 Launch at Windows startup
 
@@ -523,6 +526,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 - Value name: `KimiPlanbarTui`
 - `AutoStart=true` → value = `"{full exe path}"` (quoted)
 - `AutoStart=false` → delete the value (no error if absent)
+- Startup reconciliation (settings.json is authoritative): `AutoStart=false` with a registry value present → delete it; `AutoStart=true` with the value missing → write it. An existing value is never repointed at startup (launching must not overwrite the path with whichever exe happens to run); an explicit save still follows the two rules above
 - Errors silently swallowed
 
 ---
@@ -544,7 +548,7 @@ Self-check modes print to stdout and exit. This edition has **no single-instance
 
 ## 20. Miscellaneous implementation details (TUI-specific)
 
-- **Terminal restore (highest priority)**: startup enters raw mode + alternate screen and hides the cursor; **every exit path must restore the terminal** (leave alternate screen, disable raw mode, show the cursor) — both a normal `q` quit and a panic (via a panic hook that restores before printing). Leaving the user's terminal stuck in raw mode is the worst possible TUI accident. The TS editions' equivalent mechanisms (Bun: raw mode must be set explicitly through `bun:ffi SetConsoleMode` and re-asserted before every input event and redraw; Node: Node handles raw mode itself, but the restore handlers must be registered before terminal init) live in §22.5.
+- **Terminal restore (highest priority)**: startup enters raw mode + alternate screen and hides the cursor; **every exit path must restore the terminal** (leave alternate screen, disable raw mode, show the cursor) — both a normal `q` quit and a panic (via a panic hook that restores before printing). Windows console forced-exit paths bypass the panic hook: a `SetConsoleCtrlHandler`-registered handler runs the same restore sequence for `CTRL_C_EVENT` (Ctrl+C delivered out-of-band; keyboard Ctrl+C in raw mode generates no console event and still takes the key path), `CTRL_BREAK_EVENT` (Ctrl+Break) and `CTRL_CLOSE_EVENT` (console window close) before handing back to default termination (since 2026-09-26). Leaving the user's terminal stuck in raw mode is the worst possible TUI accident. The TS editions' equivalent mechanisms (Bun: raw mode must be set explicitly through `bun:ffi SetConsoleMode` and re-asserted before every input event and redraw; Node: Node handles raw mode itself, but the restore handlers must be registered before terminal init) live in §22.5.
 - **Minimal window on launch (72×13)**: at the start of `run()`, before terminal init, the window is shrunk to the wireframe's minimal size (72 columns × 13 rows, constants `MIN_WIN_COLS`/`MIN_WIN_ROWS`). **Guard**: this only happens when the process owns its console outright — `GetConsoleProcessList` returns exactly 1 attached process (a double-click / fresh-window launch); when launched from an existing terminal session (cmd / pwsh / Git Bash / another WT tab) the console is shared and the user's window is never touched. Two best-effort channels, errors silently swallowed: (a) the xterm window-manipulation escape `ESC [ 8 ; 13 ; 72 t` (honored by Windows Terminal 1.22+); (b) the conhost Win32 sequence: `SetConsoleWindowInfo` to a 1×1 viewport → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` to the full 72×13 rect. **TS edition (Bun) uses the same guard and both channels** — `GetConsoleProcessList` is reachable through `bun:ffi`; the by-value struct packing is noted in §22.6. **TS edition (Node)**: with no Win32 binding, the guard is an environment-variable heuristic only (`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID` all absent → shrink) and channel (a) alone — and measurements show current ConPTY does not forward that window-op escape, so it is a graceful no-op on this machine (§22.6).
 - **Event-driven redraw + 250 ms heartbeat**: every event (keyboard, quota mpsc, version mpsc, skills mpsc, theme tick, resize) triggers an immediate redraw at the top of the event loop — there is no coalescing/throttling (any event produces a frame right away). A 250 ms heartbeat tick (`draw_tick`) additionally wakes the loop when idle so countdown text stays fresh; countdown text is recomputed on every redraw (input `reset_at - now`), so there is no 1 Hz timer.
 - **System theme 30 s polling**: crossterm has no system-event source, so with `theme=system` the app polls the registry value `AppsUseLightTheme` under `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` (DWORD, 0=dark, 1=light, default 1 if missing) every 30 s — replacing the tray edition's real-time `WM_SETTINGCHANGE` listener; with `theme=light|dark` this polling does not affect the palette.
@@ -575,7 +579,7 @@ Self-check modes print to stdout and exit. This edition has **no single-instance
 
 ### 21.3 Presentation
 
-- Top summary line: `N skills` + rescan key hint.
+- Top summary line: `N skills` (`Scanning...` while loading); the rescan key hint lives in the footer (`r Rescan`).
 - List grouped by source (sorted case-insensitively by name within each group), scrolled read-only with `↑/↓`; each item: name (bold) + description (truncated to the terminal width).
 - All colors come from the `theme.rs` palette and follow Moonlit/Moondark automatically.
 - External data (skill names/descriptions) is always rendered through ratatui text widgets — never spliced into terminal escape sequences.
@@ -598,7 +602,7 @@ Self-check modes print to stdout and exit. This edition has **no single-instance
 
 ### 22.2 Data & API (maps to 16.2 / 16.3 / 16.4)
 
-Both TS editions share one origin (the Node edition is ported from the Bun one), so their mechanisms are meant to match. **Current state (2026-09-20, port complete)**: the M1-review core fixes — the JSON recursion limit, the resetTime ladder, the `RefreshMinutes` clamp, the polling clamp, the 4 KiB skills read — are now ported to `ts-nodejs/` (its `reset_time.txt` golden grew to the same 28 lines as `ts/`). The one remaining difference: **draining a non-2xx body stays Bun-only**; the Node edition deliberately does not drain (pinned by the `bodyUsed === false` case in `ts-nodejs/test/quota.test.ts`), see the corresponding table row. Every other row below holds for both TS editions.
+Both TS editions share one origin (the Node edition is ported from the Bun one), so their mechanisms are meant to match. **Current state (2026-09-20, port complete)**: the M1-review core fixes — the JSON recursion limit, the resetTime ladder, the `RefreshMinutes` clamp, the polling clamp, the 4 KiB skills read — are now ported to `ts-nodejs/` (its `reset_time.txt` golden grew to the same 29 content lines as `ts/` — the file has no trailing newline, so `wc -l` counts 28). The one remaining difference: **draining a non-2xx body stays Bun-only**; the Node edition deliberately does not drain (pinned by the `bodyUsed === false` case in `ts-nodejs/test/quota.test.ts`), see the corresponding table row. Every other row below holds for both TS editions.
 
 | Rust mechanism | TS equivalent | Pinned by |
 |---|---|---|

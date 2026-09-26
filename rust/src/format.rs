@@ -5,8 +5,12 @@ use chrono::{DateTime, Local};
 
 /// FormatReset: span = at - now, English countdown text (SPEC 12.3).
 pub fn format_reset(at: DateTime<Local>) -> String {
-    let span = at - Local::now();
-    let span_ms = span.num_milliseconds();
+    format_reset_span((at - Local::now()).num_milliseconds())
+}
+
+/// Ladder core, split out so the SPEC 12.3 branches are unit-testable
+/// without clock skew; the public input is `reset_at - now` as before.
+fn format_reset_span(span_ms: i64) -> String {
     if span_ms < 0 {
         return "Resets soon".to_string();
     }
@@ -27,15 +31,17 @@ pub fn format_reset(at: DateTime<Local>) -> String {
 
 /// FmtYuan: cents -> yuan text, fraction omitted for whole yuan (SPEC 12.5).
 pub fn fmt_yuan(cents: i64) -> String {
-    if cents < 0 {
-        return format!("-{}", fmt_yuan(-cents));
-    }
-    let yuan = cents / 100;
-    let frac = cents % 100;
+    // The absolute value is taken in i128: negating i64::MIN in i64 wraps
+    // back to i64::MIN (release builds have no overflow checks), which used
+    // to recurse forever and abort with a stranded terminal (REVIEW-RUST A).
+    let sign = if cents < 0 { "-" } else { "" };
+    let abs = (cents as i128).abs();
+    let yuan = abs / 100;
+    let frac = abs % 100;
     if frac > 0 {
-        format!("¥{yuan}.{frac:02}")
+        format!("{sign}¥{yuan}.{frac:02}")
     } else {
-        format!("¥{yuan}")
+        format!("{sign}¥{yuan}")
     }
 }
 
@@ -60,6 +66,51 @@ mod tests {
         assert_eq!(fmt_yuan(0), "¥0");
         assert_eq!(fmt_yuan(5), "¥0.05");
         assert_eq!(fmt_yuan(-1234), "-¥12.34");
+    }
+
+    /// REVIEW-RUST Major A regression: i64::MIN must format and terminate
+    /// (it used to negate-wrap and recurse until the stack overflowed).
+    #[test]
+    fn fmt_yuan_negation_extremes() {
+        assert_eq!(fmt_yuan(i64::MIN), "-¥92233720368547758.08");
+        assert_eq!(fmt_yuan(i64::MAX), "¥92233720368547758.07");
+        assert_eq!(fmt_yuan(-1), "-¥0.01");
+    }
+
+    /// SPEC 12.3 ladder on the exact span: >= 1 day -> "Xd Yh", >= 1 hour ->
+    /// "Xh Ym", else whole minutes floored at 1; negative spans read "Resets soon".
+    #[test]
+    fn format_reset_ladder() {
+        assert_eq!(format_reset_span(-1), "Resets soon");
+        assert_eq!(format_reset_span(0), "Resets in 1m");
+        assert_eq!(format_reset_span(30_000), "Resets in 1m"); // < 1 min floored to 1
+        assert_eq!(format_reset_span(119_999), "Resets in 1m");
+        assert_eq!(format_reset_span(120_000), "Resets in 2m");
+        assert_eq!(format_reset_span(3_600_000), "Resets in 1h 0m");
+        assert_eq!(format_reset_span(3_660_000), "Resets in 1h 1m");
+        assert_eq!(format_reset_span(86_400_000), "Resets in 1d 0h");
+        assert_eq!(format_reset_span(5 * 86_400_000 + 3 * 3_600_000), "Resets in 5d 3h");
+    }
+
+    /// The public entry re-derives the span from the wall clock. The far-future
+    /// case asserts the day prefix only: chrono's TimeDelta arithmetic on
+    /// DateTime<Local> can shift the instant by the DST delta, so the hour
+    /// digit is not stable across timezones (the exact ladder is pinned by
+    /// format_reset_ladder above).
+    #[test]
+    fn format_reset_end_to_end() {
+        let now = Local::now();
+        assert_eq!(format_reset(now - chrono::Duration::seconds(1)), "Resets soon");
+        let far = format_reset(now + chrono::Duration::days(5) + chrono::Duration::hours(3));
+        assert!(far.starts_with("Resets in 5d"), "got: {far}");
+    }
+
+    /// {Percent:0}% renders the raw, unclamped percent (SPEC 12.2).
+    #[test]
+    fn fmt_percent_raw_value() {
+        assert_eq!(fmt_percent(21.4), "21%");
+        assert_eq!(fmt_percent(-3.6), "-4%");
+        assert_eq!(fmt_percent(5000.0), "5000%");
     }
 
     #[test]

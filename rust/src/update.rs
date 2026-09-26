@@ -3,11 +3,11 @@
 // -> GitHub Releases API fallback. All failures degrade silently.
 
 use regex::Regex;
-use reqwest::Client;
 use serde::Serialize;
 use std::process::Stdio;
-use std::sync::OnceLock;
 use std::time::Duration;
+
+use crate::http;
 
 const CHANGELOG_URL: &str = "https://moonshotai.github.io/kimi-code/en/release-notes/changelog.md";
 const GITHUB_LATEST_URL: &str = "https://api.github.com/repos/MoonshotAI/kimi-code/releases/latest";
@@ -19,13 +19,6 @@ pub struct UpdateStatus {
     pub latest_version: Option<String>,
     pub update_available: bool,
     pub check_failed: bool,
-}
-
-fn http_client() -> Option<&'static Client> {
-    static CLIENT: OnceLock<Option<Client>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| Client::builder().timeout(Duration::from_secs(10)).build().ok())
-        .as_ref()
 }
 
 pub async fn check() -> UpdateStatus {
@@ -83,7 +76,7 @@ async fn detect_local_version() -> Option<String> {
 /// Official docs changelog: Range bytes=0-4095, first `## x.y.z` heading wins.
 /// (GitHub Pages may ignore Range and return 200 with the full body; both are fine.)
 async fn fetch_latest_from_changelog() -> Option<String> {
-    let client = http_client()?;
+    let client = http::shared_client()?;
     let resp = client
         .get(CHANGELOG_URL)
         .header(reqwest::header::RANGE, "bytes=0-4095")
@@ -100,7 +93,7 @@ async fn fetch_latest_from_changelog() -> Option<String> {
 
 /// GitHub Releases API fallback (User-Agent header is mandatory).
 async fn fetch_latest_from_github() -> Option<String> {
-    let client = http_client()?;
+    let client = http::shared_client()?;
     let resp = client
         .get(GITHUB_LATEST_URL)
         .header(reqwest::header::USER_AGENT, "KimiPlanbarTui")

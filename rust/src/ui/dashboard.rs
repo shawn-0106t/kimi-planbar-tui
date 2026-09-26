@@ -17,7 +17,7 @@
 
 use crate::app::App;
 use crate::format::{clamp_percent, fmt_percent, fmt_yuan, format_reset};
-use crate::quota::{ExtraState, QuotaSegment};
+use crate::quota::{ExtraInfo, ExtraState, QuotaSegment};
 use crate::theme::Palette;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -28,6 +28,10 @@ use ratatui::Frame;
 const FOOTER: &str = "r Refresh · s Settings · k Skills · c Console · g Releases · q Quit";
 /// Column width for the row labels ("5-hour usage" / "Kimi Code CLI" fit).
 const LABEL_W: usize = 14;
+/// Column width for the percent value (SPEC 12.2 `{percent:0}%`). 5 cells
+/// keep e.g. "5000%" intact — at 4 the % suffix was truncated away
+/// (REVIEW-RUST Minor 4).
+const PCT_W: usize = 5;
 /// Minimum bar width; below this the bar is dropped (very narrow terminals).
 const MIN_BAR_W: usize = 5;
 
@@ -73,9 +77,9 @@ fn bar_spans(p: &Palette, ratio: f64, width: usize) -> Vec<Span<'static>> {
 /// `seg == None` renders the "--" default with an empty bar.
 fn usage_line(p: &Palette, width: usize, label: &str, seg: Option<&QuotaSegment>) -> Line<'static> {
     let pct_text = seg.map(|s| fmt_percent(s.percent)).unwrap_or_else(|| "--".to_string());
-    // The column budget is 4 cells; truncate rather than overflow the line
+    // The column budget is PCT_W cells; truncate rather than overflow the line
     // (a broken payload could otherwise push the reset text off-screen).
-    let pct_text: String = pct_text.chars().take(4).collect();
+    let pct_text: String = pct_text.chars().take(PCT_W).collect();
     let reset = seg
         .and_then(|s| s.reset_at)
         .map(format_reset)
@@ -84,14 +88,17 @@ fn usage_line(p: &Palette, width: usize, label: &str, seg: Option<&QuotaSegment>
     let mut spans = vec![
         Span::styled(format!("{label:<LABEL_W$}"), Style::default().fg(p.text_secondary)),
         Span::styled(
-            format!("{pct_text:>4}"),
+            format!("{pct_text:>PCT_W$}"),
             Style::default().fg(p.text_primary).add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
     ];
 
-    // Bar takes the space left after label + percent + reset text.
-    let used = LABEL_W + 4 + 2 + if reset.is_empty() { 0 } else { reset.len() + 2 };
+    // Bar takes the space left after label + percent + reset text. The reset
+    // budget counts chars, not bytes (REVIEW-RUST Suggestion 9: format_reset
+    // is ASCII-only today, but a localized text would silently understate the
+    // bar width at byte length).
+    let used = LABEL_W + PCT_W + 2 + if reset.is_empty() { 0 } else { reset.chars().count() + 2 };
     let bar_w = width.saturating_sub(used);
     if bar_w >= MIN_BAR_W {
         // Display uses the raw percent; the bar uses the clamped value (SPEC 12.2).
@@ -103,6 +110,16 @@ fn usage_line(p: &Palette, width: usize, label: &str, seg: Option<&QuotaSegment>
         spans.push(Span::styled(reset, Style::default().fg(p.text_secondary)));
     }
     Line::from(spans)
+}
+
+/// Monthly sub-line visibility (SPEC 12.4): monthly charging enabled, a real
+/// limit, and a known used value. Single source for `extra_lines` (push the
+/// line) and `draw` (reserve the layout row) — REVIEW-RUST Suggestion 20: the
+/// predicate lived in two hand-synced copies that could drift apart.
+fn monthly_subline_shown(extra: Option<&ExtraInfo>) -> bool {
+    extra.is_some_and(|e| {
+        e.monthly_enabled && e.monthly_limit_cents.unwrap_or(0) > 0 && e.monthly_used_cents.is_some()
+    })
 }
 
 /// SPEC 12.4: Extra Usage line — balance value by three-state, then the
@@ -128,10 +145,9 @@ fn extra_lines(app: &App, p: &Palette) -> Vec<Line<'static>> {
         ),
     ])];
 
-    // Monthly sub-line (SPEC 12.4): only when monthly enabled with a real
-    // limit and a known used value.
+    // Monthly sub-line (SPEC 12.4): only when monthly_subline_shown holds.
     if let Some(e) = extra {
-        if e.monthly_enabled && e.monthly_limit_cents.unwrap_or(0) > 0 && e.monthly_used_cents.is_some() {
+        if monthly_subline_shown(Some(e)) {
             lines.push(Line::from(Span::styled(
                 format!(
                     "  Used {} this month / {} limit",
@@ -169,13 +185,8 @@ fn version_line(app: &App, p: &Palette) -> Line<'static> {
 }
 
 pub fn draw(f: &mut Frame, app: &App, p: &Palette) {
-    let monthly_shown = app
-        .quota
-        .as_ref()
-        .and_then(|q| q.extra.as_ref())
-        .map(|e| e.monthly_enabled && e.monthly_limit_cents.unwrap_or(0) > 0 && e.monthly_used_cents.is_some())
-        .unwrap_or(false);
-    let monthly_h = if monthly_shown { 1 } else { 0 };
+    let show_monthly = monthly_subline_shown(app.quota.as_ref().and_then(|q| q.extra.as_ref()));
+    let monthly_h = if show_monthly { 1 } else { 0 };
 
     let chunks = Layout::vertical([
         Constraint::Length(1),          // title
@@ -213,7 +224,7 @@ pub fn draw(f: &mut Frame, app: &App, p: &Palette) {
     if let Some(line) = extra.next() {
         f.render_widget(Paragraph::new(line), chunks[5]);
     }
-    if monthly_shown {
+    if show_monthly {
         if let Some(line) = extra.next() {
             f.render_widget(Paragraph::new(line), chunks[6]);
         }
@@ -224,4 +235,52 @@ pub fn draw(f: &mut Frame, app: &App, p: &Palette) {
         Paragraph::new(FOOTER).style(Style::default().fg(p.text_secondary)),
         chunks[10],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// REVIEW-RUST Suggestion 20: the SPEC 12.4 monthly-subline predicate now
+    /// has a single source consumed by both `extra_lines` and `draw`.
+    #[test]
+    fn monthly_subline_predicate() {
+        let info = |enabled: bool, limit: i64, used: Option<i64>| ExtraInfo {
+            state: ExtraState::Ready,
+            balance_cents: None,
+            monthly_enabled: enabled,
+            monthly_used_cents: used,
+            monthly_limit_cents: Some(limit),
+        };
+        assert!(monthly_subline_shown(Some(&info(true, 10000, Some(4567)))));
+        assert!(!monthly_subline_shown(Some(&info(false, 10000, Some(4567))))); // isEnabled=false
+        assert!(!monthly_subline_shown(Some(&info(true, 0, Some(4567))))); // limit<=0
+        assert!(!monthly_subline_shown(Some(&info(true, 10000, None)))); // used unknown
+        let limit_none = ExtraInfo {
+            state: ExtraState::Ready,
+            balance_cents: None,
+            monthly_enabled: true,
+            monthly_used_cents: Some(4567),
+            monthly_limit_cents: None,
+        };
+        assert!(!monthly_subline_shown(Some(&limit_none))); // limit unknown (unwrap_or(0) path)
+        assert!(!monthly_subline_shown(None)); // no wallet at all
+    }
+
+    /// REVIEW-RUST Minor 4 regression: 5000% must keep its % suffix — the
+    /// old 4-cell budget truncated it away (limit<=0 guard can yield large
+    /// raw percents, SPEC 12.2 displays them unclamped).
+    #[test]
+    fn usage_line_keeps_percent_suffix() {
+        let seg = QuotaSegment { percent: 5000.0, reset_at: None };
+        let line = usage_line(&crate::theme::MOONDARK, 80, "5-hour usage", Some(&seg));
+        assert_eq!(line.spans[1].content, "5000%");
+
+        let seg = QuotaSegment { percent: 68.0, reset_at: None };
+        let line = usage_line(&crate::theme::MOONDARK, 80, "5-hour usage", Some(&seg));
+        assert_eq!(line.spans[1].content, "  68%");
+
+        let line = usage_line(&crate::theme::MOONDARK, 80, "5-hour usage", None);
+        assert_eq!(line.spans[1].content, "   --");
+    }
 }

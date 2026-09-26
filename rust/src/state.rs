@@ -6,7 +6,6 @@
 use crate::quota::QuotaResult;
 use crate::settings::SettingsData;
 use crate::skills::SkillInfo;
-use crate::update::UpdateStatus;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
@@ -14,7 +13,6 @@ use tokio::sync::Notify;
 pub struct AppState {
     pub settings: RwLock<SettingsData>,
     pub last_quota: RwLock<Option<QuotaResult>>,
-    pub update: RwLock<UpdateStatus>,
     /// Effective theme after resolving "system": "light" | "dark"
     pub effective_theme: RwLock<String>,
     /// Timestamp of the last manual refresh (2s debounce, SPEC 12.7)
@@ -35,7 +33,6 @@ impl AppState {
         AppState {
             settings: RwLock::new(settings),
             last_quota: RwLock::new(None),
-            update: RwLock::new(UpdateStatus::default()),
             effective_theme: RwLock::new(effective_theme),
             last_manual_refresh: Mutex::new(None),
             skills_cache: RwLock::new(None),
