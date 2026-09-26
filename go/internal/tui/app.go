@@ -15,7 +15,9 @@
 //
 // Terminal discipline (SPEC 20): bubbletea restores the terminal on every
 // normal exit path and recovers panics; Run() additionally registers a
-// best-effort restore BEFORE terminal init (the Rust panic-hook discipline).
+// best-effort restore and the SetConsoleCtrlHandler forced-exit handler
+// BEFORE terminal init (the Rust panic-hook / REVIEW-RUST Minor 15
+// discipline — see ctrlhandler.go).
 package tui
 
 import (
@@ -24,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,9 +75,12 @@ type Model struct {
 	update        *core.UpdateStatus
 	settingsDraft *core.SettingsData // edited in the form; committed on Save
 	settingsSel   int                // 0 Theme, 1 Interval, 2 AutoStart, 3 Save
-	skillsRows    []SkillsRow
-	skillsSel     int
-	skillsLoading bool
+	// settingsSaveFailed swaps the settings footer for the failure hint until
+	// the next attempt, Esc, or form re-open (SPEC 13.2).
+	settingsSaveFailed bool
+	skillsRows         []SkillsRow
+	skillsSel          int
+	skillsLoading      bool
 
 	width  int
 	height int
@@ -186,14 +192,23 @@ func (m *Model) pollTheme() {
 var applyAutoStart = core.ApplyAutoStart
 
 // saveSettings order (SPEC 13.2 / rust app.rs): write settings.json ->
-// ApplyAutoStart -> apply theme -> reschedule the polling timer.
+// ApplyAutoStart -> apply theme -> reschedule the polling timer. On a disk
+// write failure the draft is kept, the form stays open and the footer swaps
+// to the failure hint — returning to the dashboard would imply the settings
+// were saved when they were not, and the follow-up steps are skipped with
+// the write.
 func (m *Model) saveSettings() {
 	if m.settingsDraft == nil {
 		return
 	}
 	draft := *m.settingsDraft
 	m.settingsDraft = nil
-	core.SaveSettings(draft, m.configDir)
+	if !core.SaveSettings(draft, m.configDir) {
+		m.settingsDraft = &draft
+		m.settingsSaveFailed = true
+		return
+	}
+	m.settingsSaveFailed = false
 	applyAutoStart(draft.AutoStart, core.CurrentExe())
 	eff := core.EffectiveTheme(draft.Theme, core.ReadSystemTheme)
 	m.state.SetSettings(draft)
@@ -237,6 +252,7 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 			draft := m.state.Settings()
 			m.settingsDraft = &draft
 			m.settingsSel = 0
+			m.settingsSaveFailed = false // a re-open starts from a clean footer
 			m.view = ViewSettings
 		case 'k':
 			m.view = ViewSkills
@@ -256,6 +272,7 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 		switch code {
 		case tea.KeyEsc:
 			m.settingsDraft = nil
+			m.settingsSaveFailed = false // Esc abandons the failed attempt
 			m.view = ViewDashboard
 		case tea.KeyUp:
 			if m.settingsSel > 0 {
@@ -373,7 +390,7 @@ func (m *Model) View() tea.View {
 		footer = Line{Spans: []Span{styledSpan(dashboardFooter, p.TextSecondary)}}
 	case ViewSettings:
 		rows = settingsView(m, p)
-		footer = settingsFooterRow(p)
+		footer = settingsFooterRow(m, p)
 	case ViewSkills:
 		rows = skillsView(m, p)
 		footer = skillsFooterRow(p)
@@ -416,32 +433,64 @@ func assembleFrame(rows []Line, footer Line, width, height int, windowBg string)
 // panics. bubbletea restores on its own paths; this defer covers everything
 // outside it (init-time panics, construction failures). Every step tolerates
 // a terminal that was never set up.
+//
+// run() executes exactly once across the two threads that may race to it —
+// the console ctrl handler (an OS thread, ctrlhandler.go) and this exit
+// path — via the done atomic (REVIEW-RUST Minor 15: no double restore).
 type terminalRestore struct {
 	stdin *term.State
+	done  atomic.Bool
+	// body is the actual restore sequence, injectable for the once-guard
+	// tests; production instances capture the stdout escapes + stdin restore
+	// below.
+	body func()
 }
 
 func newTerminalRestore() *terminalRestore {
-	st, err := term.GetState(os.Stdin.Fd())
-	if err != nil {
-		return &terminalRestore{}
+	r := &terminalRestore{}
+	r.body = func() {
+		// Show cursor + leave the alternate screen; both are no-ops when
+		// bubbletea already restored the terminal.
+		fmt.Fprint(os.Stdout, "\x1b[?25h\x1b[?1049l")
+		if r.stdin != nil {
+			_ = term.Restore(os.Stdin.Fd(), r.stdin)
+		}
 	}
-	return &terminalRestore{stdin: st}
+	if st, err := term.GetState(os.Stdin.Fd()); err == nil {
+		r.stdin = st
+	}
+	return r
 }
 
 func (r *terminalRestore) run() {
-	// Show cursor + leave the alternate screen; both are no-ops when
-	// bubbletea already restored the terminal.
-	fmt.Fprint(os.Stdout, "\x1b[?25h\x1b[?1049l")
-	if r.stdin != nil {
-		_ = term.Restore(os.Stdin.Fd(), r.stdin)
+	if r.done.Swap(true) {
+		return
 	}
+	r.body()
 }
 
-// Run boots the TUI (called from main after the headless self-checks). The
-// Rust-order equivalent of resize_owned_console lands in M4 (PLAN-GO §6).
+// Run boots the TUI (called from main after the headless self-checks).
 func Run() error {
+	// SPEC 20: the original terminal state is captured and the console ctrl
+	// handler installed BEFORE anything touches the console — Ctrl+Break,
+	// window close and out-of-band CTRL_C bypass bubbletea's restore
+	// (REVIEW-RUST Minor 15), and even a resize or init-time failure must
+	// not strand the terminal.
+	restore := newTerminalRestore()
+	installConsoleCtrlHandler(restore)
+	defer restore.run()
+
+	// SPEC 20: shrink the window to the wireframe minimum only when the
+	// process owns its console outright (double-click / fresh window); a
+	// console shared with a shell is never touched.
+	resizeOwnedConsole()
+
 	configDir := core.ConfigDir(core.CurrentExe(), core.OSEnv())
 	settingsData := core.LoadSettings(configDir)
+	// SPEC 18.3 startup reconciliation: settings.json is the source of truth;
+	// heal a stale HKCU Run value (legacy non-atomic write or manual edit)
+	// before the UI ever renders it.
+	core.ReconcileAutoStart(settingsData.AutoStart, core.CurrentExe())
 	eff := core.EffectiveTheme(settingsData.Theme, core.ReadSystemTheme)
 	state := core.NewAppState(settingsData, eff)
 
@@ -457,9 +506,8 @@ func Run() error {
 		},
 	})
 
-	// Register the restore path BEFORE terminal init (SPEC 20 discipline).
-	restore := newTerminalRestore()
-	defer restore.run()
+	// Register the restore path BEFORE terminal init (SPEC 20 discipline) —
+	// done at the top of Run together with the console ctrl handler.
 
 	_, err := prog.Run()
 	m.polling.Stop()

@@ -2,14 +2,22 @@
 // (light) / Moondark (dark)), interval pills x4 (1/5/10/30 min, default 5),
 // autostart checkbox, Save. Save order — write JSON -> autostart -> theme ->
 // reschedule timer — lives in app.go saveSettings, mirroring rust app.rs.
-// Row layout translated from rust/src/ui/settings_view.rs.
+// Row layout translated from rust/src/ui/settings_view.rs; the layout budget
+// (REVIEW-RUST Major B) is 9 content lines so the whole form — checkbox,
+// Save, footer — stays visible at the 72×13 minimal window (SPEC 20).
 package tui
 
 import (
 	"github.com/shawn-0106t/kimi-planbar-tui/go/internal/core"
 )
 
-const settingsFooter = "↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel"
+const settingsFooter = "↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel · q Quit"
+
+// settingsSaveFailedFooter is the footer swapped in while a save attempt
+// failed (SPEC 13.2: a failed save must never read as saved and must not be
+// a silent dead key either); the normal footer returns on the next save
+// attempt, Esc, or form re-open.
+const settingsSaveFailedFooter = "Save failed — could not write settings.json · Esc Cancel · q Quit"
 
 type themeLabel struct{ value, label string }
 
@@ -60,8 +68,10 @@ func headingLine(text string, p core.Palette) Line {
 }
 
 // settingsView returns the content rows above the footer: blank, padded
-// title, blank (3-row title block), blank (the inner-rect top offset in the
-// Rust layout), then the form lines.
+// title, blank (the 3-row title block's padding rows), then the 9 form lines.
+// The content starts right below the title block — its bottom row already
+// acts as the spacer, so there is no extra inner-rect offset here (the old
+// +1 cost a row the minimal window does not have, REVIEW-RUST Major B).
 func settingsView(m *Model, p core.Palette) []Line {
 	title := styledSpan("  Kimi Planbar TUI Settings", p.TextPrimary)
 	title.Bold = true
@@ -69,7 +79,6 @@ func settingsView(m *Model, p core.Palette) []Line {
 	rows := []Line{
 		blankOf(p),
 		{Spans: []Span{title}},
-		blankOf(p),
 		blankOf(p),
 	}
 
@@ -82,7 +91,10 @@ func settingsView(m *Model, p core.Palette) []Line {
 	for _, tl := range themeLabels {
 		rows = append(rows, radioLine(draft.Theme == tl.value, m.settingsSel == 0, tl.label, p))
 	}
-	rows = append(rows, blankOf(p), headingLine("Refresh interval", p), blankOf(p))
+	// No spacer lines between groups beyond the one above: the form must fit
+	// the 9 content rows above the footer at the 72×13 minimal window
+	// (REVIEW-RUST Major B).
+	rows = append(rows, headingLine("Refresh interval", p))
 
 	// Interval pills on one row (SPEC 13.2 horizontal StackPanel).
 	var pillSpans []Span
@@ -97,7 +109,7 @@ func settingsView(m *Model, p core.Palette) []Line {
 		}
 		pillSpans = append(pillSpans, pill, spanOf(" "))
 	}
-	rows = append(rows, Line{Spans: pillSpans}, blankOf(p))
+	rows = append(rows, Line{Spans: pillSpans})
 
 	// Autostart checkbox.
 	check := "[ ]"
@@ -111,7 +123,7 @@ func settingsView(m *Model, p core.Palette) []Line {
 	rows = append(rows, Line{Spans: []Span{
 		{Text: check + " ", Fg: checkFg},
 		labelSpan,
-	}}, blankOf(p))
+	}})
 
 	// Save button.
 	save := Span{Text: " Save ", Bg: p.ButtonBg, Fg: p.TextPrimary}
@@ -149,7 +161,13 @@ func cycleStr(options []string, current string, dir int) string {
 var themeValues = []string{"system", "light", "dark"}
 var intervalValues = []int64{1, 5, 10, 30}
 
-// settingsFooterRow exposes the footer text (used by app.go's frame builder).
-func settingsFooterRow(p core.Palette) Line {
-	return Line{Spans: []Span{styledSpan(settingsFooter, p.TextSecondary)}}
+// settingsFooterRow builds the pinned footer; a failed save swaps in the
+// failure hint until the next attempt, Esc, or form re-open (SPEC 13.2,
+// rust/src/ui/settings_view.rs settings_save_failed).
+func settingsFooterRow(m *Model, p core.Palette) Line {
+	text := settingsFooter
+	if m.settingsSaveFailed {
+		text = settingsSaveFailedFooter
+	}
+	return Line{Spans: []Span{styledSpan(text, p.TextSecondary)}}
 }

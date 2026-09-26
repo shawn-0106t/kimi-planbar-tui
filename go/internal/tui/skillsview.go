@@ -1,8 +1,9 @@
 // Read-only skills view (SPEC 21.3): "N skills" summary + rescan hint, rows
 // grouped by source (case-insensitive name sort happens in core.ScanSkills),
-// scrollable with the selected item kept in the viewport. Zero background
-// cost: scan once on first open, cached in AppState; 'r' forces a rescan
-// (SPEC 21.2). Layout translated from rust/src/ui/skills_view.rs.
+// scrollable with the selected item's name AND description lines kept in the
+// viewport (REVIEW-RUST Minor 11). Zero background cost: scan once on first
+// open, cached in AppState; 'r' forces a rescan (SPEC 21.2). Layout
+// translated from rust/src/ui/skills_view.rs.
 package tui
 
 import (
@@ -12,6 +13,23 @@ import (
 )
 
 const skillsFooter = "↑/↓ Scroll · r Rescan · Esc Back · q Quit"
+
+// scrollFor keeps the selected item FULLY visible — its name line AND
+// description line (each item renders as two lines, SPEC 21.3). A selection
+// that already fits never scrolls; maxScroll pins the view to the last page.
+// Pure so the invariant is unit-testable (REVIEW-RUST Minor 11: the old +1
+// budget pinned the name row to the bottom edge and clipped the description
+// line right below the fold).
+func scrollFor(selLine, viewport, maxScroll int) int {
+	s := selLine + 2 - viewport
+	if s < 0 {
+		s = 0
+	}
+	if s > maxScroll {
+		s = maxScroll
+	}
+	return s
+}
 
 // SkillsRow is a flattened display row: a group header or a skill item.
 type SkillsRow struct {
@@ -25,7 +43,10 @@ type SkillsRow struct {
 // blank (3-row title block), blank (inner-rect top offset), then the visible
 // portion of the list.
 func skillsView(m *Model, p core.Palette) []Line {
-	title := styledSpan("Kimi Skills", p.TextPrimary)
+	// The 2-space left indent is the Rust title block's padding
+	// (skills_view.rs Padding::new(2, 0, 1, 0)); the summary keeps its
+	// 3-space gap after the title.
+	title := styledSpan("  Kimi Skills", p.TextPrimary)
 	title.Bold = true
 	summary := fmt.Sprintf("%d skills", m.countSkillItems())
 	if m.skillsLoading {
@@ -65,7 +86,8 @@ func skillsView(m *Model, p core.Palette) []Line {
 		}
 	}
 
-	// Keep the selected row's first line inside the viewport.
+	// Keep the selected item's name AND description lines inside the
+	// viewport (REVIEW-RUST Minor 11).
 	viewport := m.height - 5 // 3 title rows + inner offset + footer
 	if viewport < 0 {
 		viewport = 0
@@ -79,16 +101,7 @@ func skillsView(m *Model, p core.Palette) []Line {
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
-	scroll := 0
-	if selLine >= viewport {
-		scroll = selLine + 1 - viewport
-		if scroll > maxScroll {
-			scroll = maxScroll
-		}
-	}
-	if scroll < 0 {
-		scroll = 0
-	}
+	scroll := scrollFor(selLine, viewport, maxScroll)
 	end := scroll + viewport
 	if end > total {
 		end = total

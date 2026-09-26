@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -33,7 +35,7 @@ func frameTexts(t *testing.T, m *Model) []string {
 		footer = Line{Spans: []Span{styledSpan(dashboardFooter, p.TextSecondary)}}
 	case ViewSettings:
 		rows = settingsView(m, p)
-		footer = settingsFooterRow(p)
+		footer = settingsFooterRow(m, p)
 	case ViewSkills:
 		rows = skillsView(m, p)
 		footer = skillsFooterRow(p)
@@ -135,6 +137,15 @@ func TestDashboardWithQuota(t *testing.T) {
 	if !strings.Contains(rows[6], "Used ¥45.67 this month / ¥100 limit") {
 		t.Errorf("monthly line = %q", rows[6])
 	}
+	// With the monthly sub-line shown, exactly one blank separates it from the
+	// version row (the Rust chunk layout: monthly(6) / blank(7) / version(8));
+	// a duplicated blank would push the version row down to 9.
+	if blank := strings.TrimSpace(rows[7]); blank != "" {
+		t.Errorf("row 7 = %q, want the single blank before the version row", rows[7])
+	}
+	if !strings.HasPrefix(rows[8], "Kimi Code CLI") {
+		t.Errorf("row 8 = %q, want the version row right after the blank", rows[8])
+	}
 }
 
 func TestDashboardErrorKeepsLastGood(t *testing.T) {
@@ -215,10 +226,8 @@ func TestDashboardNotActivatedExtra(t *testing.T) {
 
 func TestSettingsViewSnapshot(t *testing.T) {
 	m := newTestModel(t)
-	// The Rust form needs more than the 13-row minimum: the checkbox and Save
-	// rows are below the fold on a minimal window, so snapshot at a height
-	// where every row is visible.
-	m.height = 24
+	// The compacted 9-line form (REVIEW-RUST Major B) fits the 72×13 minimal
+	// window, so the default newTestModel size exercises every row.
 	if _, cmd := m.Update(keyPress('s')); cmd != nil {
 		t.Fatalf("opening settings returned a cmd")
 	}
@@ -229,7 +238,7 @@ func TestSettingsViewSnapshot(t *testing.T) {
 		"Theme", "System default", "Moonlit (light)", "Moondark (dark)",
 		"Refresh interval", "1 min", "5 min", "10 min", "30 min",
 		"Launch at Windows startup", "Save",
-		"↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel",
+		"↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel · q Quit",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("settings view lacks %q", want)
@@ -243,14 +252,40 @@ func TestSettingsViewSnapshot(t *testing.T) {
 		t.Errorf("autostart must default to off")
 	}
 	// The footer sits on the bottom row (padding computed in cells).
-	if rows[23] != settingsFooter+strings.Repeat(" ", 72-displayWidth(settingsFooter)) {
-		t.Errorf("footer not pinned to the last row: %q", rows[23])
+	if rows[12] != settingsFooter+strings.Repeat(" ", 72-displayWidth(settingsFooter)) {
+		t.Errorf("footer not pinned to the last row: %q", rows[12])
+	}
+}
+
+// REVIEW-RUST Major B + Suggestion 18 regression, mirroring the Rust
+// settings_form_fits_minimal_window: at the SPEC 20 minimal window (72×13)
+// the whole form — interval pills, autostart checkbox, Save action row — and
+// the footer must be visible. The old 13-line form clipped its last four
+// rows.
+func TestSettingsFormFitsMinimalWindow(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(keyPress('s'))
+	m.settingsSel = 3 // Save row selected, like the Rust test's fixture
+	rows := frameTexts(t, m)
+	screen := strings.Join(rows, "\n")
+	if !strings.Contains(screen, "1 min") {
+		t.Errorf("interval pills clipped:\n%s", screen)
+	}
+	if !strings.Contains(screen, "Launch at Windows startup") {
+		t.Errorf("checkbox clipped:\n%s", screen)
+	}
+	// " Save " with surrounding spaces is the action row; the footer's
+	// "Enter Save/Toggle" must not satisfy this assert.
+	if !strings.Contains(screen, " Save ") {
+		t.Errorf("Save row clipped:\n%s", screen)
+	}
+	if !strings.Contains(screen, "q Quit") {
+		t.Errorf("footer clipped:\n%s", screen)
 	}
 }
 
 func TestSettingsCyclingChangesView(t *testing.T) {
 	m := newTestModel(t)
-	m.height = 24
 	m.Update(keyPress('s'))
 
 	m.Update(keyPress(tea.KeyRight)) // theme: system -> light
@@ -275,6 +310,47 @@ func TestSettingsCyclingChangesView(t *testing.T) {
 	}
 }
 
+// REVIEW-RUST Minor 11: while the selected item (name + description, two
+// lines) already fits the viewport, the view must not scroll.
+func TestScrollForUnchangedWhileSelectionFits(t *testing.T) {
+	if got := scrollFor(0, 5, 10); got != 0 {
+		t.Errorf("scrollFor(0,5,10) = %d, want 0", got)
+	}
+	// Name 3 + desc 4 fit rows 0..=4.
+	if got := scrollFor(3, 5, 10); got != 0 {
+		t.Errorf("scrollFor(3,5,10) = %d, want 0", got)
+	}
+}
+
+// REVIEW-RUST Minor 11 regression: the old +1 budget kept only the name row
+// visible — paging down clipped the description line below the fold.
+func TestScrollForShowsNameAndDescription(t *testing.T) {
+	// Name on the last visible row: one line of scroll reveals the description.
+	if got := scrollFor(4, 5, 10); got != 1 {
+		t.Errorf("scrollFor(4,5,10) = %d, want 1", got)
+	}
+	// Paged past the bottom: name and description end on the last two rows.
+	if got := scrollFor(7, 5, 10); got != 4 {
+		t.Errorf("scrollFor(7,5,10) = %d, want 4", got)
+	}
+}
+
+// maxScroll pins the view to the last page while both selected lines stay
+// visible; out-of-range selections and short lists clamp safely.
+func TestScrollForClampsToMax(t *testing.T) {
+	// Last page rows 3..=7: name 6, desc 7 visible.
+	if got := scrollFor(6, 5, 3); got != 3 {
+		t.Errorf("scrollFor(6,5,3) = %d, want 3", got)
+	}
+	if got := scrollFor(50, 5, 3); got != 3 {
+		t.Errorf("scrollFor(50,5,3) = %d, want 3", got)
+	}
+	// Short list, nothing to scroll.
+	if got := scrollFor(0, 5, 0); got != 0 {
+		t.Errorf("scrollFor(0,5,0) = %d, want 0", got)
+	}
+}
+
 func TestSkillsViewSnapshot(t *testing.T) {
 	m := newTestModel(t)
 	m.view = ViewSkills
@@ -285,8 +361,13 @@ func TestSkillsViewSnapshot(t *testing.T) {
 	})
 	rows := frameTexts(t, m)
 	joined := strings.Join(rows, "\n")
+	// Title row exact match: the 2-space left indent is the Rust title
+	// block's padding (skills_view.rs Padding::new(2, 0, 1, 0)) — anchored to
+	// the row start so a lost indent cannot slip through a Contains check.
+	if got := strings.TrimRight(rows[1], " "); got != "  Kimi Skills   3 skills" {
+		t.Errorf("title row = %q, want %q", got, "  Kimi Skills   3 skills")
+	}
 	for _, want := range []string{
-		"Kimi Skills   3 skills",
 		"Kimi Code",
 		"web-search",
 		"Search the web",
@@ -357,5 +438,71 @@ func TestAssembleFramePinsFooterAndFillsHeight(t *testing.T) {
 	all = assembleFrame(rows, Line{Spans: []Span{{Text: "F"}}}, 10, 2, p.WindowBg)
 	if len(all) != 2 || lineText(all[1]) != "F" {
 		t.Errorf("short frame = %v", all)
+	}
+}
+
+func TestDashboardKeepsPercentSuffix(t *testing.T) {
+	// The limit<=0 guard can yield large raw percents; SPEC 12.2 displays
+	// them unclamped and the pctW budget must keep the % suffix (the Go
+	// counterpart of REVIEW-RUST Minor 4).
+	m := newTestModel(t)
+	m.quota = &core.QuotaResult{FiveHour: &core.QuotaSegment{Percent: 5000}}
+	rows := frameTexts(t, m)
+	if !strings.Contains(rows[2], "5000%") {
+		t.Errorf("5-hour row = %q, want the %% suffix kept on 5000%%", rows[2])
+	}
+}
+
+func TestSaveSettingsFailureKeepsDraftAndStays(t *testing.T) {
+	// SPEC 13.2: a write failure keeps the draft and the form open —
+	// returning to the dashboard would imply the settings were saved when
+	// they were not, and the follow-up steps are skipped with the write.
+	m := newTestModel(t)
+	if _, cmd := m.Update(keyPress('s')); cmd != nil {
+		t.Fatalf("opening settings returned a cmd")
+	}
+	blocked := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.configDir = blocked
+	m.saveSettings()
+	if m.view != ViewSettings {
+		t.Errorf("view = %v, want the settings form to stay open on failure", m.view)
+	}
+	if m.settingsDraft == nil {
+		t.Errorf("draft lost on save failure")
+	}
+
+	// REVIEW-RUST Suggestion 16: the failed attempt swaps the footer for the
+	// failure hint — a failed save must never read as saved (SPEC 13.2).
+	if !m.settingsSaveFailed {
+		t.Errorf("save failure must raise the save-failed hint")
+	}
+	joined := strings.Join(frameTexts(t, m), "\n")
+	if !strings.Contains(joined, settingsSaveFailedFooter) {
+		t.Errorf("footer = %q, want the Save failed hint %q", joined, settingsSaveFailedFooter)
+	}
+
+	// Esc abandons the attempt: the hint clears with the draft (SPEC 13.2).
+	m.Update(keyPress(tea.KeyEsc))
+	if m.settingsSaveFailed {
+		t.Errorf("Esc must clear the save-failed hint")
+	}
+
+	// Re-opening the form starts from a clean footer; a successful save
+	// clears the hint too (stub the registry seam, never touch the HKCU key,
+	// and point the config dir back at a writable directory).
+	m.Update(keyPress('s'))
+	if m.settingsSaveFailed {
+		t.Errorf("re-opening the form must clear the save-failed hint")
+	}
+	restoreSeam := stubAutoStart(func(bool, string) {})
+	defer restoreSeam()
+	m.polling = core.NewPolling(core.PollingDeps{State: m.state})
+	m.configDir = t.TempDir()
+	m.saveSettings()
+	if m.settingsSaveFailed {
+		t.Errorf("a successful save must clear the save-failed hint")
 	}
 }

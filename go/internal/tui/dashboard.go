@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/shawn-0106t/kimi-planbar-tui/go/internal/core"
 )
@@ -28,6 +29,12 @@ const dashboardFooter = "r Refresh · s Settings · k Skills · c Console · g R
 // minBarW is the minimum bar width; below this the bar is dropped (very
 // narrow terminals, SPEC 12.2).
 const minBarW = 5
+
+// pctW is the column width for the percent value (SPEC 12.2 `{percent:0}%`).
+// 5 cells keep e.g. "5000%" intact — at 4 the % suffix was truncated away
+// (the Go counterpart of REVIEW-RUST Minor 4; the limit<=0 guard can yield
+// large raw percents and display uses them unclamped).
+const pctW = 5
 
 // dashboardSpec12_1 is the right side of the title row (SPEC 12.1).
 func lastUpdatedText(m *Model) string {
@@ -84,13 +91,13 @@ func usageLine(m *Model, p core.Palette, width int, label string, seg *core.Quot
 			reset = core.FormatReset(*seg.ResetAt, nowMs)
 		}
 	}
-	// The column budget is 4 cells; truncate rather than overflow the line (a
-	// broken payload could otherwise push the reset text off-screen).
+	// The column budget is pctW cells; truncate rather than overflow the
+	// line (a broken payload could otherwise push the reset text off-screen).
 	pctRunes := []rune(pctText)
-	if len(pctRunes) > 4 {
-		pctRunes = pctRunes[:4]
+	if len(pctRunes) > pctW {
+		pctRunes = pctRunes[:pctW]
 	}
-	pctText = fmt.Sprintf("%4s", string(pctRunes))
+	pctText = fmt.Sprintf("%*s", pctW, string(pctRunes))
 
 	spans := []Span{
 		styledSpan(padLabel(label), p.TextSecondary),
@@ -99,10 +106,13 @@ func usageLine(m *Model, p core.Palette, width int, label string, seg *core.Quot
 	}
 	spans[1].Bold = true
 
-	// The bar takes the space left after label + percent + reset text.
-	used := labelW + 4 + 2
+	// The bar takes the space left after label + percent + reset text. The
+	// reset budget counts chars, not bytes (REVIEW-RUST Suggestion 9:
+	// format_reset is ASCII-only today, but a localized text would silently
+	// understate the bar width at byte length).
+	used := labelW + pctW + 2
 	if reset != "" {
-		used += len(reset) + 2
+		used += utf8.RuneCountInString(reset) + 2
 	}
 	barW := width - used
 	if barW >= minBarW {
@@ -195,9 +205,9 @@ func dashboardView(m *Model, p core.Palette, nowMs int64) []Line {
 	}
 	extra := extraLines(m, p)
 	rows = append(rows, extra...)
-	if len(extra) > 1 {
-		rows = append(rows, blankOf(p)) // blank after the monthly sub-line
-	}
+	// Exactly one blank separates the last Extra Usage row (monthly sub-line
+	// when shown) from the version row — the Rust chunk layout is
+	// Extra(5) / monthly(6) / blank(7) / version(8).
 	rows = append(rows, blankOf(p), versionRow(m, p))
 	return rows
 }

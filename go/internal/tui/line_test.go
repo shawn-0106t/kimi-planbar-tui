@@ -93,6 +93,25 @@ func TestPadLineToWidthClipsAndPads(t *testing.T) {
 	}
 }
 
+func TestPadLineToWidthComposesWindowBgAsBaseBackground(t *testing.T) {
+	// The ratatui base layer (rust/src/ui/mod.rs Block::bg) paints window_bg
+	// under every cell: spans without their own bg must inherit it (PLAN-GO
+	// §4.3), spans with one must keep it.
+	got := padLineToWidth(Line{Spans: []Span{
+		{Text: "ab", Fg: "#FF0000"},
+		{Text: "cd", Bg: "#202020"},
+	}}, 6, "#101010")
+	if got.Spans[0].Bg != "#101010" {
+		t.Errorf("bg-less span did not inherit window_bg: %+v", got.Spans[0])
+	}
+	if got.Spans[1].Bg != "#202020" {
+		t.Errorf("span with its own bg lost it: %+v", got.Spans[1])
+	}
+	if got.Spans[2].Bg != "#101010" {
+		t.Errorf("filler lost window_bg: %+v", got.Spans[2])
+	}
+}
+
 func TestPadLineToWidthIsTheInjectionFirewall(t *testing.T) {
 	// External strings (a hostile skill name here) must not be able to move
 	// the cursor or change terminal state through a frame (SPEC 22.5).

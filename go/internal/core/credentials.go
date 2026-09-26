@@ -140,7 +140,11 @@ func TokenFromConfigToml(text string) (string, bool) {
 			if found, ok := matchProvider(section, baseUrl, apiKey, haveSection, haveBase, haveKey); ok {
 				return found, true
 			}
-			section = RustTrimMatchesAny(line, []string{"[", "]"})
+			// Strip the brackets, then trim: the real CLI writes
+			// "[providers.x]" compact, but "[ providers.x ]" would otherwise
+			// leave padding in the section name and miss the match
+			// (SPEC 16.2, the Go counterpart of REVIEW-RUST Suggestion 7).
+			section = RustTrim(RustTrimMatchesAny(line, []string{"[", "]"}))
 			haveSection = true
 			baseUrl, apiKey = "", ""
 			haveBase, haveKey = false, false
@@ -206,4 +210,32 @@ func ApplyAutoStart(autoStart bool, exe string) {
 	} else {
 		_ = key.DeleteValue(runValueName)
 	}
+}
+
+// reconcileNeedsApply is the SPEC 18.3 reconciliation decision: settings.json
+// is the source of truth — heal a stale Run value in both directions, but
+// leave an existing value alone when AutoStart=true (no repointing at every
+// launch: a stale exe path self-corrects on the next explicit save, and
+// repointing would let a dev build fight the installed one).
+func reconcileNeedsApply(autoStart, valueExists bool) bool {
+	return (autoStart && !valueExists) || (!autoStart && valueExists)
+}
+
+// ReconcileAutoStart heals the HKCU Run value against settings.json at
+// startup (SPEC 18.3): AutoStart=false but a value exists -> delete it;
+// AutoStart=true but the value is missing -> write it. The existence check
+// is by value NAME, not type: reading as a string would report a manually
+// written REG_DWORD as "missing" and skip the delete. All errors are
+// silently swallowed (SPEC 20).
+func ReconcileAutoStart(autoStart bool, exe string) {
+	key, err := registry.OpenKey(registry.CURRENT_USER, registryRunKeyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return
+	}
+	_, _, err = key.GetValue(runValueName, nil)
+	key.Close()
+	if !reconcileNeedsApply(autoStart, err == nil) {
+		return
+	}
+	ApplyAutoStart(autoStart, exe)
 }

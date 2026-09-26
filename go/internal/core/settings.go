@@ -118,11 +118,27 @@ func LoadSettings(dir string) SettingsData {
 	return ParseSettingsJson(text)
 }
 
-// SaveSettings writes settings.json; every IO failure is swallowed and
-// surfaced only through the UI (SPEC 20).
-func SaveSettings(data SettingsData, dir string) {
+// SaveSettings writes settings.json atomically — a temp file in the same
+// directory, then rename over the target (SPEC 18.2) — so a crash mid-write
+// can never leave a truncated settings.json behind (a truncated file would
+// silently fall back to all defaults on the next load). Reports success: on
+// a write failure the UI keeps the draft open and skips the follow-up steps
+// (SPEC 13.2); all IO errors themselves remain silently swallowed (SPEC 20).
+func SaveSettings(data SettingsData, dir string) bool {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return
+		return false
 	}
-	_ = os.WriteFile(settingsPath(dir), []byte(SettingsToJSONText(data)), 0o644)
+	tmp := filepath.Join(dir, "settings.json.tmp")
+	if err := os.WriteFile(tmp, []byte(SettingsToJSONText(data)), 0o644); err != nil {
+		// REVIEW-RUST Suggestion 13: the failed write may leave a half-made
+		// tmp behind — clean it up with the same best-effort remove as the
+		// rename-failure path (SPEC 18.2).
+		_ = os.Remove(tmp)
+		return false
+	}
+	if err := os.Rename(tmp, settingsPath(dir)); err != nil {
+		_ = os.Remove(tmp) // best-effort cleanup, keep the dir tidy
+		return false
+	}
+	return true
 }

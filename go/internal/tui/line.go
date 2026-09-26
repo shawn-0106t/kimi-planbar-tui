@@ -24,7 +24,8 @@ import (
 	"github.com/mattn/go-runewidth"
 )
 
-// Span is one styled run; empty Fg/Bg mean the terminal default.
+// Span is one styled run; empty Fg/Bg mean the terminal default (Bg is
+// composed onto window_bg at the padLineToWidth choke point).
 type Span struct {
 	Text      string
 	Fg        string // #RRGGBB from the palette (SPEC 11.1)
@@ -151,6 +152,16 @@ func padLineToWidth(line Line, width int, windowBg string) Line {
 				spans = append(spans, s)
 				used += displayWidth(keep)
 			}
+		}
+	}
+	// window_bg is the base background — the ratatui Block::bg layer that
+	// rust/src/ui/mod.rs paints across f.area(): every span without its own
+	// bg sits on it, so text runs and the trailing filler form one uniform
+	// field (PLAN-GO §4.3). Without this, text renders on the terminal
+	// default and breaks wherever it differs from the palette.
+	for i := range spans {
+		if spans[i].Bg == "" {
+			spans[i].Bg = windowBg
 		}
 	}
 	if filler := width - used; filler > 0 {

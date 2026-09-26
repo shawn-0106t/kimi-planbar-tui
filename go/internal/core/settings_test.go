@@ -160,3 +160,52 @@ func TestRealMachineSettingsByteStable(t *testing.T) {
 			SettingsToJSONText(data), string(b))
 	}
 }
+
+func TestSaveSettingsIsAtomicAndCleansUp(t *testing.T) {
+	dir := t.TempDir()
+	data := SettingsData{Theme: "dark", RefreshMinutes: 5, AutoStart: false}
+	if !SaveSettings(data, dir) {
+		t.Fatalf("save must report success in a writable dir")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "settings.json")); err != nil {
+		t.Fatalf("target file missing after save: %v", err)
+	}
+	// The temp file must not survive the rename (SPEC 18.2).
+	if _, err := os.Stat(filepath.Join(dir, "settings.json.tmp")); !os.IsNotExist(err) {
+		t.Errorf("settings.json.tmp survived the save")
+	}
+}
+
+func TestSaveSettingsReportsFailure(t *testing.T) {
+	// A regular file in place of the directory makes MkdirAll fail portably
+	// (SPEC 18.2: the boolean is what drives the SPEC 13.2 UI behavior).
+	blocked := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if SaveSettings(DefaultSettings(), blocked) {
+		t.Errorf("save must report failure when the dir cannot be created")
+	}
+}
+
+func TestSaveSettingsTmpWriteFailureCleansUpTmp(t *testing.T) {
+	// REVIEW-RUST Suggestion 13: when writing the temp file fails, the
+	// half-made tmp must be cleaned up with the same best-effort remove as
+	// the rename-failure path (SPEC 18.2). An empty directory occupying the
+	// tmp path makes WriteFile fail deterministically.
+	dir := t.TempDir()
+	tmp := filepath.Join(dir, "settings.json.tmp")
+	if err := os.Mkdir(tmp, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if SaveSettings(DefaultSettings(), dir) {
+		t.Fatalf("save must report failure when the tmp path cannot be written")
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Errorf("settings.json.tmp survived the failed write")
+	}
+	// A failed save must not have produced a target file either.
+	if _, err := os.Stat(filepath.Join(dir, "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("a failed save must not leave a settings.json behind")
+	}
+}

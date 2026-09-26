@@ -242,3 +242,31 @@ func TestAutoStartValueShape(t *testing.T) {
 		t.Errorf("autoStartValue = %q", got)
 	}
 }
+
+func TestTokenFromConfigTomlPaddedSectionName(t *testing.T) {
+	// The real CLI writes compact section headers; a bracket-padded one must
+	// match too (SPEC 16.2, the Go counterpart of REVIEW-RUST Suggestion 7).
+	if got, ok := TokenFromConfigToml("[ providers.kimi ]\n" +
+		"base_url = \"https://api.kimi.com/coding/v1\"\n" +
+		"api_key = \"padded\"\n"); !ok || got != "padded" {
+		t.Errorf("padded section header must match, got %q %v", got, ok)
+	}
+}
+
+func TestReconcileNeedsApplyMatrix(t *testing.T) {
+	// SPEC 18.3 startup reconciliation: heal both directions, never repoint
+	// an existing value while AutoStart=true.
+	cases := []struct {
+		autoStart, exists, want bool
+	}{
+		{true, false, true},   // missing -> write it
+		{false, true, true},   // stale -> delete it
+		{true, true, false},   // in sync — deliberately left alone
+		{false, false, false}, // nothing to do
+	}
+	for _, c := range cases {
+		if got := reconcileNeedsApply(c.autoStart, c.exists); got != c.want {
+			t.Errorf("reconcileNeedsApply(%v, %v) = %v, want %v", c.autoStart, c.exists, got, c.want)
+		}
+	}
+}
