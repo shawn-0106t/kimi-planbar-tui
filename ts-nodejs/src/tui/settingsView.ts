@@ -14,7 +14,12 @@ import type { SettingsData } from "../core/settings.ts";
 import type { Palette } from "../core/theme.ts";
 import { padLineToWidth, tline, tspan, type TuiLine, type TuiSpan } from "./line.ts";
 
-export const SETTINGS_FOOTER = "↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel";
+export const SETTINGS_FOOTER = "↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel · q Quit";
+/** A failed Save swaps the footer for a hint until the next attempt, Esc, or
+ *  form re-open (SPEC 13.2: a failed save must never read as saved, and must
+ *  not be a silent dead key either — REVIEW-RUST Suggestion 16 adds q Quit). */
+export const SETTINGS_SAVE_FAILED_FOOTER =
+  "Save failed — could not write settings.json · Esc Cancel · q Quit";
 
 /** Field indexes: theme, interval, autostart, save. */
 export const SETTINGS_FIELD_COUNT = 4;
@@ -64,30 +69,36 @@ export interface SettingsViewInput {
 }
 
 /** Full-screen settings rows, top-anchored; app.ts pads the vertical gap and
- *  pins the footer, exactly like the dashboard frame assembly. */
+ *  pins the footer, exactly like the dashboard frame assembly.
+ *
+ *  Layout budget (REVIEW-RUST Major B): 3 title rows + 9 form lines so the
+ *  whole form — checkbox, Save, footer — stays visible at the 72×13 minimal
+ *  window (3 + 9 + 1 = 13). The old 13-line form (group spacers + a spacer
+ *  row before the content, the TS counterpart of the Rust `Min(10)` and the
+ *  content `+1` shift) clipped its last four rows. */
 export function renderSettingsRows(input: SettingsViewInput): TuiLine[] {
   const { draft, sel, width, palette: p } = input;
   const rows: TuiLine[] = [];
 
   // Title area mirrors the Rust layout: 1 blank row, title (2-cell left
-  // padding), then 2 blank rows before the content.
+  // padding), 1 blank row — content starts right below, with no extra
+  // spacer (the old +1 cost a row the minimal window does not have).
   rows.push(tline([]));
   rows.push(tline([tspan("  Kimi Planbar TUI Settings", { fg: p.textPrimary, bold: true })]));
   rows.push(tline([]));
+
+  // 9 form lines: Theme heading + one spacer + 3 radios, then the interval
+  // heading, pills, checkbox and Save with no spacers between groups — the
+  // form must fit the 9 inner rows of the 72×13 minimal window (SPEC 13.1).
+  const heading = (text: string): TuiLine => tline([tspan(text, { fg: p.textSecondary, bold: true })]);
+
+  rows.push(heading("Theme"));
   rows.push(tline([]));
-
-  const heading = (text: string): void => {
-    rows.push(tline([tspan(text, { fg: p.textSecondary, bold: true })]));
-    rows.push(tline([]));
-  };
-
-  heading("Theme");
   for (const [value, label] of THEME_OPTIONS) {
     rows.push(radioRow(draft.theme === value, sel === 0, label, p));
   }
-  rows.push(tline([]));
 
-  heading("Refresh interval");
+  rows.push(heading("Refresh interval"));
   const pills: TuiSpan[] = [];
   for (const [value, label] of INTERVAL_OPTIONS) {
     const active = draft.refreshMinutes === value;
@@ -101,7 +112,6 @@ export function renderSettingsRows(input: SettingsViewInput): TuiLine[] {
     pills.push(tspan(" "));
   }
   rows.push(tline(pills));
-  rows.push(tline([]));
 
   const checked = draft.autoStart;
   const check = checked ? "[x]" : "[ ]";
@@ -111,7 +121,6 @@ export function renderSettingsRows(input: SettingsViewInput): TuiLine[] {
       tspan("Launch at Windows startup", selStyle(sel === 2, p)),
     ]),
   );
-  rows.push(tline([]));
 
   rows.push(
     tline([
@@ -122,6 +131,7 @@ export function renderSettingsRows(input: SettingsViewInput): TuiLine[] {
   return rows.map((l) => padLineToWidth(l, width, p.windowBg));
 }
 
-export function settingsFooterLine(p: Palette, width: number): TuiLine {
-  return padLineToWidth(tline([tspan(SETTINGS_FOOTER, { fg: p.textSecondary })]), width, p.windowBg);
+export function settingsFooterLine(p: Palette, width: number, saveFailed = false): TuiLine {
+  const text = saveFailed ? SETTINGS_SAVE_FAILED_FOOTER : SETTINGS_FOOTER;
+  return padLineToWidth(tline([tspan(text, { fg: p.textSecondary })]), width, p.windowBg);
 }

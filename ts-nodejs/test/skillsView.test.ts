@@ -12,6 +12,7 @@ import {
   firstItemRow,
   moveSkillsSel,
   renderSkillsRows,
+  scrollFor,
   SKILLS_FOOTER,
   type SkillsRow,
 } from "../src/tui/skillsView.ts";
@@ -103,14 +104,21 @@ describe("skills view rendering (SPEC 21.3)", () => {
   });
 
   test("scrolling keeps the selected item inside the viewport", () => {
-    const rows = buildSkillsRows(FIXTURE); // 11 display lines total
-    // viewport = height - 5 = 4; selecting the last item (display line 9)
+    const rows = buildSkillsRows(FIXTURE); // 12 display lines total
+    // viewport = height - 5 = 4; selecting the last item (display line 10)
     // must scroll so that line stays visible.
     const frame = render(rows, 6, 9).map(lineText);
     expect(frame.length).toBe(8); // 4 title rows + 4 viewport rows
     expect(frame.some((l) => l.includes("delta"))).toBe(true);
     expect(frame.some((l) => l.includes("Plugin: xhcj"))).toBe(true);
     expect(frame.some((l) => l.includes("Agents"))).toBe(false); // scrolled off
+  });
+
+  test("scrolling keeps the selected DESCRIPTION line visible too (REVIEW-RUST Minor 11)", () => {
+    // Regression for the old +1 budget: paging to the last item used to clip
+    // its description line right below the fold.
+    const frame = render(buildSkillsRows(FIXTURE), 6, 9).map(lineText);
+    expect(frame.some((l) => l.includes("the delta skill"))).toBe(true);
   });
 
   test("escape sequences in skill text never reach a rendered frame", () => {
@@ -123,5 +131,25 @@ describe("skills view rendering (SPEC 21.3)", () => {
     }
     // The text survives, only the control bytes are gone.
     expect(lineText(rows[5]!)).toContain("evil-");
+  });
+});
+
+describe("scrollFor (rust scroll_for, REVIEW-RUST Minor 11)", () => {
+  test("unchanged while the selected item (name + description) already fits", () => {
+    expect(scrollFor(0, 5, 10)).toBe(0);
+    expect(scrollFor(3, 5, 10)).toBe(0); // name 3 + desc 4 fit rows 0..=4
+  });
+
+  test("keeps the name AND description lines visible when paging down", () => {
+    // Name on the last visible row: one line of scroll reveals the description
+    expect(scrollFor(4, 5, 10)).toBe(1);
+    // Paged past the bottom: name and description end on the last two rows
+    expect(scrollFor(7, 5, 10)).toBe(4);
+  });
+
+  test("clamps to the last page and to short lists", () => {
+    expect(scrollFor(6, 5, 3)).toBe(3); // last page rows 3..=7: name 6, desc 7 visible
+    expect(scrollFor(50, 5, 3)).toBe(3); // out-of-range selection clamps
+    expect(scrollFor(0, 5, 0)).toBe(0); // short list, nothing to scroll
   });
 });

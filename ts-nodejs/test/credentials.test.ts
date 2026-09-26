@@ -94,6 +94,16 @@ describe("config.toml fallback (SPEC 16.2 step 2)", () => {
       .toBe("kk");
   });
 
+  test("bracket-padded section names match like compact ones (REVIEW-RUST Suggestion 7)", () => {
+    // Mirror of rust config_toml_compact_and_padded_sections: strip the
+    // brackets, then trim — "[ providers.x ]" used to keep the padding and
+    // miss the providers.* prefix check.
+    const compact = provider("kimi", "https://api.kimi.com/coding/v1", "key-1");
+    expect(tokenFromConfigToml(compact)).toBe("key-1");
+    const padded = '[ providers.kimi ]\nbase_url = "https://api.kimi.com/coding/v1"\napi_key = "key-2"\n';
+    expect(tokenFromConfigToml(padded)).toBe("key-2");
+  });
+
   test("section name, base_url and a non-empty key are all required", () => {
     // A kimi-shaped base_url under a non-provider section (as on a real machine)
     // must not match, unlike a provider section whose key is empty.

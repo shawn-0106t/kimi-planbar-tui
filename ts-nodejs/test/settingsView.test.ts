@@ -12,6 +12,8 @@ import {
   renderSettingsRows,
   SETTINGS_FIELD_COUNT,
   SETTINGS_FOOTER,
+  SETTINGS_SAVE_FAILED_FOOTER,
+  settingsFooterLine,
   THEME_OPTIONS,
 } from "../src/tui/settingsView.ts";
 
@@ -58,9 +60,36 @@ describe("settings form layout (SPEC 13.1/13.2)", () => {
     expect(text).toContain("[ ] Launch at Windows startup");
   });
 
-  test("the footer advertises the form keys", () => {
-    expect(SETTINGS_FOOTER).toBe("↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel");
+  test("the whole form fits the 72x13 minimal window (REVIEW-RUST Major B / Suggestion 18)", () => {
+    // Mirror of rust settings_form_fits_minimal_window: at the SPEC 20
+    // minimal window (72x13) the whole form — interval pills, autostart
+    // checkbox, Save action row — and the footer must be visible. The old
+    // 13-line form (group spacers + the content shift row) clipped its last
+    // four rows.
+    const content = renderSettingsRows({ draft: draft(), sel: 3, width: 72, palette: P });
+    // Frame assembly mirrors app.ts: content top-anchored, footer bottom-pinned.
+    const frame = [...content, settingsFooterLine(P, 72)].map(lineText);
+    expect(content.length).toBe(12); // 3 title rows + 9 form lines (SPEC 13.1)
+    expect(frame.length).toBe(13);
+    const screen = frame.join("\n");
+    expect(screen).toContain("1 min");
+    expect(screen).toContain("Launch at Windows startup");
+    // " Save " with surrounding spaces is the action row; the footer's
+    // "Enter Save/Toggle" must not satisfy this assert.
+    expect(screen).toContain(" Save ");
+    expect(screen).toContain("q Quit");
+  });
+
+  test("the footer advertises the form keys, including the quit key", () => {
+    expect(SETTINGS_FOOTER).toBe("↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel · q Quit");
     expect(SETTINGS_FIELD_COUNT).toBe(4);
+  });
+
+  test("a failed save swaps the footer for the hint until the next attempt (SPEC 13.2)", () => {
+    const failed = lineText(settingsFooterLine(P, 80, true));
+    expect(failed.trimEnd()).toBe("Save failed — could not write settings.json · Esc Cancel · q Quit");
+    const normal = lineText(settingsFooterLine(P, 80, false));
+    expect(normal.trimEnd()).toBe(SETTINGS_FOOTER);
   });
 });
 

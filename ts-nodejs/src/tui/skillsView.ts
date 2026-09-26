@@ -1,10 +1,11 @@
 // Read-only skills view (SPEC 21.3), aligned with rust/src/ui/skills_view.rs:
 // title "Kimi Skills" + "N skills" summary, rows grouped by source (group
 // headers are not selectable), item = bold name line + indented description
-// line, scrolled so the selected row stays in the viewport. Row construction
-// and selection movement are pure and exported for tests; the scan lives in
-// core/skills.ts, triggered from app.ts (first open uses the AppState cache,
-// `r` forces a rescan — SPEC 21.2).
+// line, scrolled so the selected item's name AND description rows stay in the
+// viewport. Row construction, selection movement and the scroll offset are
+// pure and exported for tests; the scan lives in core/skills.ts, triggered
+// from app.ts (first open uses the AppState cache, `r` forces a rescan —
+// SPEC 21.2).
 //
 // Selection style mirrors the Rust draw(): the highlighted item is
 // text_primary/bold (name) and text_secondary (description) on a
@@ -61,6 +62,19 @@ export function moveSkillsSel(rows: SkillsRow[], sel: number, dir: 1 | -1): numb
   return sel;
 }
 
+/** Scroll offset keeping the selected item FULLY visible — its name line AND
+ *  description line (each item renders as two lines, SPEC 21.3). A selection
+ *  that already fits never scrolls; `maxScroll` pins the view to the last
+ *  page. The both-lines-visible invariant holds for viewport >= 2 (the view
+ *  layout's floor, the `Min(3)` chunk minus one padding row); degenerate 0/1-
+ *  row viewports degrade gracefully to an in-range offset. Pure so the
+ *  invariant is unit-testable (REVIEW-RUST Minor 11: the old +1 budget pinned
+ *  the name row to the bottom edge and clipped the description line right
+ *  below the fold). */
+export function scrollFor(selLine: number, viewport: number, maxScroll: number): number {
+  return Math.min(Math.max(0, selLine + 2 - viewport), maxScroll);
+}
+
 export interface SkillsViewInput {
   rows: SkillsRow[];
   sel: number;
@@ -111,11 +125,11 @@ export function renderSkillsRows(input: SkillsViewInput): TuiLine[] {
     }
   });
 
-  // Keep the selected row's first line inside the viewport (rust: scroll calc).
+  // Keep the selected item's name AND description lines inside the viewport
   const viewport = Math.max(0, height - 5);
   const selLine = rowLine[sel] ?? 0;
   const maxScroll = Math.max(0, lines.length - viewport);
-  const scroll = selLine >= viewport ? Math.min(selLine + 1 - viewport, maxScroll) : 0;
+  const scroll = scrollFor(selLine, viewport, maxScroll);
   out.push(...lines.slice(scroll, scroll + viewport));
 
   return out.map((l) => padLineToWidth(l, width, p.windowBg));

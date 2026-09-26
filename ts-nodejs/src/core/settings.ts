@@ -3,7 +3,7 @@
 // PascalCase keys, 2-space indent and no trailing newline.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   jAsBool,
@@ -115,12 +115,42 @@ export function loadSettings(dir: string = configDir()): SettingsData {
   return parseSettingsJson(text);
 }
 
-export function saveSettings(data: SettingsData, dir: string = configDir()): void {
+/** Write settings.json and report success (SPEC 18.2, REVIEW-RUST Minor 2):
+ *  the write is atomic-ish — a PID-suffixed temp file in the same directory,
+ *  then rename over the target — so a crash mid-write can never leave a
+ *  truncated settings.json behind (a truncated file would silently fall back
+ *  to all defaults on next load). Every IO failure is swallowed and reported
+ *  as `false`; the UI side decides what a failed save looks like (SPEC 13.2). */
+export function saveSettings(data: SettingsData, dir: string = configDir()): boolean {
   try {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(settingsPath(dir), settingsToJsonText(data));
   } catch {
     // every IO failure is swallowed and surfaced only through the UI (SPEC 20)
+    return false;
+  }
+  const tmp = join(dir, `settings.json.${process.pid}.tmp`);
+  try {
+    writeFileSync(tmp, settingsToJsonText(data));
+  } catch {
+    removeTemp(tmp); // drop a half-written temp, symmetric with the rename-failure path (REVIEW-RUST Suggestion 13)
+    return false;
+  }
+  try {
+    renameSync(tmp, settingsPath(dir));
+  } catch {
+    removeTemp(tmp); // best-effort cleanup, keep the dir tidy (REVIEW-RUST Suggestion 13)
+    return false;
+  }
+  return true;
+}
+
+/** Best-effort `fs::remove_file` counterpart: cleanup must never turn a
+ *  handled save failure into an unhandled throw. */
+function removeTemp(tmp: string): void {
+  try {
+    rmSync(tmp, { force: true });
+  } catch {
+    // the half-written temp stays behind, exactly like `let _ = remove_file`
   }
 }
 
@@ -143,5 +173,51 @@ export function applyAutoStart(data: SettingsData, exe: string = currentExe()): 
     spawnSync(cmd[0]!, cmd.slice(1), { stdio: ["ignore", "ignore", "ignore"], windowsHide: true });
   } catch {
     // reg.exe missing or the key unavailable: the setting simply does not apply
+  }
+}
+
+/** The reg.exe existence probe argv, kept separate so tests can pin the
+ *  quoting without touching the real Run key. */
+export function runValueQueryCommand(): string[] {
+  return ["reg.exe", "query", RUN_KEY, "/v", RUN_VALUE];
+}
+
+/** Whether the HKCU Run value exists, judged by VALUE NAME (REVIEW-RUST
+ *  Minor 2): `reg.exe query ... /v <name>` fails whenever the name is absent,
+ *  whatever its type — a manually written REG_DWORD still counts as existing,
+ *  so the reconcile delete below is not skipped. */
+export function runValueExists(): boolean {
+  try {
+    const cmd = runValueQueryCommand();
+    const probe = spawnSync(cmd[0]!, cmd.slice(1), {
+      stdio: ["ignore", "ignore", "ignore"],
+      windowsHide: true,
+    });
+    return probe.status === 0;
+  } catch {
+    return false; // reg.exe missing: treat as absent, applyAutoStart reports nothing either way
+  }
+}
+
+/** The reconcile decision (REVIEW-RUST Minor 2), pure for tests: heal both
+ *  directions; an in-sync pair — AutoStart=true with an existing value — is
+ *  deliberately left alone (no repointing at every launch: a stale exe path
+ *  self-corrects on the next explicit save, and repointing would let a dev
+ *  build fight the installed one over the value). */
+export function reconcileNeedsApply(autoStart: boolean, existing: boolean): boolean {
+  // AutoStart=true but the value is missing -> write it
+  // AutoStart=false but the value exists -> delete it
+  return (autoStart && !existing) || (!autoStart && existing);
+}
+
+/** Startup reconciliation (REVIEW-RUST Minor 2): settings.json is the source
+ *  of truth, the HKCU Run value the executed contract. A legacy non-atomic
+ *  write (or a manual registry edit) could leave the two diverged — e.g. the
+ *  value stuck on `true` while settings.json fell back to AutoStart=false, so
+ *  the machine kept autostarting an app whose settings screen said off. All
+ *  errors silently swallowed (code-style baseline). */
+export function reconcileAutoStart(data: SettingsData, exe: string = currentExe()): void {
+  if (reconcileNeedsApply(data.autoStart, runValueExists())) {
+    applyAutoStart(data, exe);
   }
 }

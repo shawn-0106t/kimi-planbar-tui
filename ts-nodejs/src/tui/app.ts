@@ -18,6 +18,7 @@ import { fetchQuota, type QuotaResult } from "../core/quota.ts";
 import {
   applyAutoStart,
   loadSettings,
+  reconcileAutoStart,
   saveSettings,
   type SettingsData,
 } from "../core/settings.ts";
@@ -92,6 +93,10 @@ type View = "dashboard" | "settings" | "skills";
 export async function runTui(): Promise<void> {
   shrinkFreshWindow();
   const settings = loadSettings();
+  // Registry reconciliation (REVIEW-RUST Minor 2, SPEC 18.3): settings.json is
+  // the source of truth; heal a stale HKCU Run value left behind by a legacy
+  // non-atomic write (or manual edit) before the UI ever renders it.
+  reconcileAutoStart(settings);
   const eff = effectiveTheme(settings.theme, () => systemThemeSync());
   const state: AppState = createAppState(settings, eff);
 
@@ -138,6 +143,7 @@ export async function runTui(): Promise<void> {
     update: null as UpdateStatus | null,
     settingsDraft: null as SettingsData | null,
     settingsSel: 0,
+    settingsSaveFailed: false,
     skillsRows: [] as SkillsRow[],
     skillsSel: 0,
     skillsLoading: false,
@@ -153,7 +159,7 @@ export async function runTui(): Promise<void> {
     let footer: TuiLine;
     if (app.view === "settings" && app.settingsDraft !== null) {
       content = renderSettingsRows({ draft: app.settingsDraft, sel: app.settingsSel, width, palette: p });
-      footer = settingsFooterLine(p, width);
+      footer = settingsFooterLine(p, width, app.settingsSaveFailed);
     } else if (app.view === "skills") {
       content = renderSkillsRows({
         rows: app.skillsRows,
@@ -249,11 +255,18 @@ export async function runTui(): Promise<void> {
   };
 
   /** Settings save action order (SPEC 13.2): write settings.json ->
-   *  applyAutoStart -> apply theme -> reschedule the polling timer -> back. */
+   *  applyAutoStart -> apply theme -> reschedule the polling timer -> back.
+   *  REVIEW-RUST Minor 2: on a disk write failure the draft is kept and the
+   *  form stays open with a "Save failed" footer hint — returning to the
+   *  dashboard would imply the settings were saved when they were not. */
   const saveDraft = (): void => {
     const draft = app.settingsDraft;
     if (draft === null) return;
-    saveSettings(draft);
+    if (!saveSettings(draft)) {
+      app.settingsSaveFailed = true;
+      return;
+    }
+    app.settingsSaveFailed = false;
     applyAutoStart(draft);
     state.settings = draft;
     state.effectiveTheme = effectiveTheme(draft.theme, () => systemThemeSync());
@@ -271,6 +284,7 @@ export async function runTui(): Promise<void> {
         // SPEC 13.2: the form opens with the current settings backfilled.
         app.settingsDraft = { ...state.settings };
         app.settingsSel = 0;
+        app.settingsSaveFailed = false;
         app.view = "settings";
         break;
       case "k":
@@ -295,6 +309,7 @@ export async function runTui(): Promise<void> {
     switch (key.name) {
       case "escape":
         app.settingsDraft = null; // discarded, not saved
+        app.settingsSaveFailed = false;
         app.view = "dashboard";
         break;
       case "up":

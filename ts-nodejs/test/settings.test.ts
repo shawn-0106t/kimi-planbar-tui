@@ -1,5 +1,5 @@
 import { describe, expect, test } from "./bun-shim.ts";
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   autoStartCommand,
@@ -7,6 +7,8 @@ import {
   defaultSettings,
   loadSettings,
   parseSettingsJson,
+  reconcileNeedsApply,
+  runValueQueryCommand,
   saveSettings,
   settingsToJsonText,
   type SettingsData,
@@ -104,9 +106,53 @@ describe("config dir + read/write (SPEC 18.1)", () => {
     const dir = tempDir("roundtrip");
     expect(loadSettings(dir)).toEqual(defaultSettings());
     const data: SettingsData = { theme: "dark", refreshMinutes: 1, autoStart: false };
-    saveSettings(data, dir);
+    expect(saveSettings(data, dir)).toBe(true);
     expect(loadSettings(dir)).toEqual(data);
     expect(readFileSync(join(dir, "settings.json"), "utf8")).toBe(settingsToJsonText(data));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("an atomic save leaves no temp file behind (SPEC 18.2)", () => {
+    const dir = tempDir("atomic");
+    saveSettings({ theme: "light", refreshMinutes: 10, autoStart: true }, dir);
+    expect(readdirSync(dir)).toEqual(["settings.json"]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("an unwritable config dir reports failure and writes nothing (SPEC 13.2)", () => {
+    // The dir argument is an existing FILE: mkdirSync fails, saveSettings
+    // must return false so the UI can keep the draft on the form.
+    const parent = tempDir("fail-mkdir");
+    const blocked = join(parent, "not-a-dir");
+    writeFileSync(blocked, "x", "utf8");
+    expect(saveSettings(defaultSettings(), blocked)).toBe(false);
+    rmSync(parent, { recursive: true, force: true });
+  });
+
+  test("a failed temp write is cleaned up and the target stays untouched (REVIEW-RUST Suggestion 13)", () => {
+    const dir = tempDir("fail-write");
+    // A read-only file sits at the exact temp path the writer will use, so
+    // writeFileSync fails after mkdir succeeded (Windows: chmod 0o444 maps to
+    // FILE_ATTRIBUTE_READONLY).
+    const tmp = join(dir, `settings.json.${process.pid}.tmp`);
+    writeFileSync(tmp, "sentinel", "utf8");
+    chmodSync(tmp, 0o444);
+    expect(saveSettings({ theme: "dark", refreshMinutes: 5, autoStart: false }, dir)).toBe(false);
+    // The symmetric cleanup removed the half-written temp; the target was
+    // never touched.
+    expect(existsSync(tmp)).toBe(false);
+    expect(existsSync(join(dir, "settings.json"))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a failed rename leaves no temp file behind (REVIEW-RUST Suggestion 13)", () => {
+    const dir = tempDir("fail-rename");
+    // A DIRECTORY at the target path blocks the rename but not the temp
+    // write, so the rename-failure cleanup branch runs and must remove the
+    // half-written temp.
+    mkdirSync(join(dir, "settings.json"));
+    expect(saveSettings({ theme: "dark", refreshMinutes: 5, autoStart: false }, dir)).toBe(false);
+    expect(readdirSync(dir)).toEqual(["settings.json"]);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -146,6 +192,28 @@ describe("autostart argv (SPEC 18.3)", () => {
       "KimiPlanbarTui",
       "/f",
     ]);
+  });
+});
+
+describe("startup reconcile decision (SPEC 18.3, REVIEW-RUST Minor 2)", () => {
+  // The registry touchpoints (runValueExists / applyAutoStart) spawn the real
+  // reg.exe, so only the pure decision and the argv are pinned here; the
+  // wiring is one call after loadSettings() in app.ts.
+  test("the existence probe queries the Run value by NAME", () => {
+    expect(runValueQueryCommand()).toEqual([
+      "reg.exe",
+      "query",
+      "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "/v",
+      "KimiPlanbarTui",
+    ]);
+  });
+
+  test("heals both directions, never repoints an existing value", () => {
+    expect(reconcileNeedsApply(true, false)).toBe(true); // missing value -> write it
+    expect(reconcileNeedsApply(false, true)).toBe(true); // stale value -> delete it
+    expect(reconcileNeedsApply(true, true)).toBe(false); // in sync: leave alone
+    expect(reconcileNeedsApply(false, false)).toBe(false); // in sync: leave alone
   });
 });
 
