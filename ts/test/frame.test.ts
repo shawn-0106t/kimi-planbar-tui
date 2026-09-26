@@ -43,9 +43,19 @@ describe("frame per view (SPEC 12.7 view set)", () => {
     app.settingsDraft = { theme: "dark", refreshMinutes: 10, autoStart: true };
     const g = text(app, 72, 14);
     expect(g[1]).toBe("  Kimi Planbar TUI Settings");
-    expect(g[4]).toBe("Theme");
-    expect(g[8]).toBe("(●) Moondark (dark)");
+    expect(g[3]).toBe("Theme");
+    expect(g[7]).toBe("(●) Moondark (dark)");
     expect(g[13]).toBe(SETTINGS_FOOTER);
+  });
+
+  test("a save failure swaps the settings footer (SPEC 13.2)", () => {
+    const app = createUiApp(quota);
+    app.view = "settings";
+    app.settingsDraft = { theme: "dark", refreshMinutes: 10, autoStart: true };
+    app.settingsSaveFailed = true;
+    const g = text(app, 72, 14);
+    expect(g[13]).toContain("Save failed");
+    expect(g[13]).toContain("q Quit");
   });
 
   test("the skills frame shows the grouped list and its footer", () => {
@@ -79,8 +89,8 @@ describe("short terminals (SPEC 20 layout)", () => {
     const app = createUiApp(quota);
     app.view = "settings";
     app.settingsDraft = { theme: "system", refreshMinutes: 5, autoStart: false };
-    const rows = renderFrame(app, MOONLIT, 60, 6);
-    expect(lineText(rows[5]!)).toBe(SETTINGS_FOOTER.padEnd(60));
+    const rows = renderFrame(app, MOONLIT, 66, 6);
+    expect(lineText(rows[5]!)).toBe(SETTINGS_FOOTER.padEnd(66));
     expect(rows.map(lineText).join("\n")).toContain("Kimi Planbar TUI Settings");
   });
 

@@ -5,6 +5,7 @@
 // the Min(0) spacer and the bottom-pinned footer are the renderer's job.
 
 import { clampPercent, fmtPercent, fmtYuan, formatReset, formatUpdated } from "../core/format.ts";
+import { runeLen } from "../core/json.ts";
 import type { QuotaResult, QuotaSegment } from "../core/quota.ts";
 import type { Palette } from "../core/theme.ts";
 import type { UpdateStatus } from "../core/update.ts";
@@ -13,6 +14,10 @@ import { padLineToWidth, tline, tspan, type TuiLine } from "./line.ts";
 export const FOOTER = "r Refresh · s Settings · k Skills · c Console · g Releases · q Quit";
 /// Column width for the row labels ("5-hour usage" / "Kimi Code CLI" fit).
 const LABEL_W = 14;
+/// Column width for the percent value (SPEC 12.2 `{percent:0}%`). 5 cells
+/// keep e.g. "5000%" intact — at 4 the % suffix was truncated away
+/// (REVIEW-RUST Minor 4).
+const PCT_W = 5;
 /// Minimum bar width; below this the bar is dropped (very narrow terminals).
 const MIN_BAR_W = 5;
 /// ratatui title split: Min(10) + Length(16) — Length wins under scarcity.
@@ -64,9 +69,9 @@ function barSpans(p: Palette, ratio: number, width: number) {
  *  `seg == null` renders the "--" default with an empty bar. */
 export function usageLine(p: Palette, width: number, label: string, seg: QuotaSegment | null, nowMs: number): TuiLine {
   const pctText = seg ? fmtPercent(seg.percent) : "--";
-  // The column budget is 4 cells; truncate rather than overflow the line
+  // The column budget is PCT_W cells; truncate rather than overflow the line
   // (a broken payload could otherwise push the reset text off-screen).
-  const pct = pctText.slice(0, 4).padStart(4);
+  const pct = pctText.slice(0, PCT_W).padStart(PCT_W);
   const reset = seg?.resetAt ? formatReset(seg.resetAt, nowMs) : "";
 
   const spans = [
@@ -75,8 +80,12 @@ export function usageLine(p: Palette, width: number, label: string, seg: QuotaSe
     tspan("  "),
   ];
 
-  // Bar takes the space left after label + percent + reset text.
-  const used = LABEL_W + 4 + 2 + (reset === "" ? 0 : reset.length + 2);
+  // Bar takes the space left after label + percent + reset text. The reset
+  // budget counts chars, not UTF-16 units (REVIEW-RUST Suggestion 9:
+  // format_reset is ASCII-only today, but a localized text would otherwise
+  // overstate the reserved width — astral chars count once, as Rust's
+  // chars().count() does).
+  const used = LABEL_W + PCT_W + 2 + (reset === "" ? 0 : runeLen(reset) + 2);
   const barW = Math.max(0, width - used);
   if (barW >= MIN_BAR_W) {
     // Display uses the raw percent; the bar uses the clamped value (SPEC 12.2).

@@ -10,6 +10,7 @@ import {
   firstItemIndex,
   moveSkillSel,
   renderSkillsRows,
+  scrollFor,
   SKILLS_FOOTER,
   skillsDisplayLines,
   type SkillRow,
@@ -37,6 +38,28 @@ const grid = (rows: SkillRow[], sel: number, height: number, loading = false) =>
   renderSkillsRows({ rows, sel, loading, width: W, height, palette: P }).map((l) =>
     lineText(l).replace(/\s+$/, ""),
   );
+
+// REVIEW-RUST Minor 11: scroll_for() is pure so the both-lines-visible
+// invariant is unit-testable (mirrors rust/src/ui/skills_view.rs::tests).
+describe("skills scroll budget (rust skills_view.rs::scroll_for)", () => {
+  test("no scroll while the selection already fits", () => {
+    expect(scrollFor(0, 5, 10)).toBe(0);
+    expect(scrollFor(3, 5, 10)).toBe(0); // name 3 + desc 4 fit rows 0..=4
+  });
+
+  test("paging keeps the selected name AND description visible", () => {
+    // name on the last visible row: one line of scroll reveals the description
+    expect(scrollFor(4, 5, 10)).toBe(1);
+    // paged past the bottom: name and description end on the last two rows
+    expect(scrollFor(7, 5, 10)).toBe(4);
+  });
+
+  test("max_scroll pins the view to the last page and clamps safely", () => {
+    expect(scrollFor(6, 5, 3)).toBe(3); // last page rows 3..=7: name 6, desc 7 visible
+    expect(scrollFor(50, 5, 3)).toBe(3); // out-of-range selection clamps
+    expect(scrollFor(0, 5, 0)).toBe(0); // short list, nothing to scroll
+  });
+});
 
 describe("skills row model (app.rs::set_skills)", () => {
   test("groups are inserted whenever the source changes", () => {
@@ -110,16 +133,17 @@ describe("skills view rows (SPEC 21.3)", () => {
     expect(lineText(line)).toBe("    一二三四");
   });
 
-  test("the viewport scrolls to keep the selected row visible", () => {
+  test("the viewport scrolls to keep the selected item's two lines visible (REVIEW-RUST Minor 11)", () => {
     const many: SkillRow[] = [{ kind: "group", source: "Kimi Code" }];
     for (const n of ["a", "b", "c", "d"]) many.push({ kind: "item", name: n, description: `d-${n}` });
     // height 12 -> viewport 7 lines; rows: 0 group, 1..8 items (2 lines each)
     expect(skillsDisplayLines(many, 0, P).rowLine).toEqual([0, 1, 3, 5, 7]);
     const top = grid(many, 1, 12);
     expect(top.slice(4)).toEqual(["Kimi Code", "  a", "    d-a", "  b", "    d-b", "  c", "    d-c"]);
-    // the last item starts on line 7, outside a 7-line viewport -> scroll 1
+    // the last item starts on line 7: scroll 2 pins its name AND description
+    // on the last two viewport rows (the old +1 budget clipped the description)
     const scrolled = grid(many, 4, 12);
-    expect(scrolled.slice(4)).toEqual(["  a", "    d-a", "  b", "    d-b", "  c", "    d-c", "  d"]);
+    expect(scrolled.slice(4)).toEqual(["    d-a", "  b", "    d-b", "  c", "    d-c", "  d", "    d-d"]);
   });
 
   test("the selected item highlights both of its lines", () => {

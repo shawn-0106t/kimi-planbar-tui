@@ -2,7 +2,7 @@
 // The on-disk file is shared with the Rust edition, so the byte shape matters:
 // PascalCase keys, 2-space indent and no trailing newline.
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   jAsBool,
@@ -114,13 +114,55 @@ export function loadSettings(dir: string = configDir()): SettingsData {
   return parseSettingsJson(text);
 }
 
-export function saveSettings(data: SettingsData, dir: string = configDir()): void {
+/** Write settings.json and report success. REVIEW-RUST Minor 2: the write is
+ *  atomic — a PID-suffixed temp file in the same directory, then rename over
+ *  the target (SPEC 18.2) — so a crash mid-write can never leave a truncated
+ *  settings.json behind (a truncated file would silently fall back to all
+ *  defaults on the next load). On a write failure the UI keeps the draft open
+ *  and skips the follow-up steps (SPEC 13.2); the IO errors themselves remain
+ *  silently swallowed (SPEC 20). */
+export function saveSettings(data: SettingsData, dir: string = configDir()): boolean {
+  return writeSettingsAtomic(settingsToJsonText(data), dir, process.pid);
+}
+
+/** The atomic write, split out with an injectable pid and write step so tests
+ *  can pin the temp-file name and both failure paths without touching the
+ *  real config dir. */
+export function writeSettingsAtomic(
+  json: string,
+  dir: string,
+  pid: number,
+  write: (path: string, text: string) => void = writeFileSync,
+): boolean {
   try {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(settingsPath(dir), settingsToJsonText(data));
   } catch {
-    // every IO failure is swallowed and surfaced only through the UI (SPEC 20)
+    // Rust `let _ =`: the write below fails for a missing dir and reports it
   }
+  const tmp = join(dir, `settings.json.${pid}.tmp`);
+  try {
+    write(tmp, json);
+  } catch {
+    // drop a half-written temp, symmetric with the rename-failure path
+    // (REVIEW-RUST Suggestion 13)
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // best effort
+    }
+    return false;
+  }
+  try {
+    renameSync(tmp, settingsPath(dir));
+  } catch {
+    try {
+      rmSync(tmp, { force: true }); // best-effort cleanup, keep the dir tidy
+    } catch {
+      // best effort
+    }
+    return false;
+  }
+  return true;
 }
 
 const RUN_KEY = "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -142,4 +184,55 @@ export function applyAutoStart(data: SettingsData, exe: string = currentExe()): 
   } catch {
     // reg.exe missing or the key unavailable: the setting simply does not apply
   }
+}
+
+/** reg.exe argv for the startup existence probe, kept separate so tests can
+ *  pin the quoting without touching the real Run key. `/v` matches the value
+ *  NAME regardless of its type — the reg.exe counterpart of Rust's
+ *  `get_raw_value(..).is_ok()`. */
+export function regQueryRunValueCommand(): string[] {
+  return ["reg.exe", "query", RUN_KEY, "/v", RUN_VALUE];
+}
+
+/** True when a Run value named KimiPlanbarTui exists (any type); null when the
+ *  probe itself failed. Synchronous like Rust's winreg read and only ever paid
+ *  once at startup, before anything is drawn (same budget as the theme
+ *  startup probe, SPEC §22.3). */
+export function runValueExists(): boolean | null {
+  try {
+    const proc = Bun.spawnSync({
+      cmd: regQueryRunValueCommand(),
+      stdout: "ignore",
+      stderr: "ignore",
+      windowsHide: true,
+    });
+    return proc.exitCode === 0;
+  } catch {
+    return null;
+  }
+}
+
+/** The SPEC 18.3 reconciliation decision: settings.json is the source of
+ *  truth — heal a stale Run value in both directions, but leave an existing
+ *  value alone when AutoStart=true (no repointing at every launch: a stale
+ *  exe path self-corrects on the next explicit save, and repointing would let
+ *  a dev build fight the installed one over the value). */
+export function reconcileNeedsApply(autoStart: boolean, valueExists: boolean): boolean {
+  return (autoStart && !valueExists) || (!autoStart && valueExists);
+}
+
+/** Startup reconciliation (REVIEW-RUST Minor 2, SPEC 18.3): settings.json is
+ *  the source of truth, the HKCU Run value the executed contract. A legacy
+ *  non-atomic write (or a manual registry edit) could leave the two diverged
+ *  — e.g. the value stuck on `true` while settings.json fell back to
+ *  AutoStart=false, so the machine kept autostarting an app whose settings
+ *  screen said off. Heal both directions via applyAutoStart. The existence
+ *  check is by value NAME, not type: reading the value as a REG_SZ would
+ *  report a manually written REG_DWORD as "missing" and skip the delete.
+ *  A failed probe leaves the registry alone; every error is silently
+ *  swallowed (code-style baseline). */
+export function reconcileAutoStart(data: SettingsData, exe: string = currentExe()): void {
+  const existing = runValueExists();
+  if (existing === null) return;
+  if (reconcileNeedsApply(data.autoStart, existing)) applyAutoStart(data, exe);
 }

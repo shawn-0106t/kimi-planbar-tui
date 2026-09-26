@@ -93,7 +93,10 @@ export function tokenFromConfigToml(text: string): string | null {
     if (line.startsWith("[")) {
       const found = matchProvider(section, baseUrl, apiKey);
       if (found !== null) return found;
-      section = rustTrimMatchesAny(line, ["[", "]"]);
+      // REVIEW-RUST Suggestion 7: strip the brackets, then trim — the real CLI
+      // writes "[providers.x]" compact, but "[ providers.x ]" used to leave
+      // padding in the section name and miss the match.
+      section = rustTrim(rustTrimMatchesAny(line, ["[", "]"]));
       baseUrl = null;
       apiKey = null;
       continue;

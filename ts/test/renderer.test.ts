@@ -114,7 +114,7 @@ describe("opentui adapter (renderer.ts)", () => {
     await setup.renderOnce();
     const pillSpan = setup
       .captureSpans()
-      .lines[12]!.spans.find((s) => s.text === " 5 min ")!;
+      .lines[9]!.spans.find((s) => s.text === " 5 min ")!;
     expect(pillSpan.attributes & 8).toBe(8); // underline bit (probe §2.6)
     expect(pillSpan.bg.equals(RGBA.fromHex(MOONLIT.accent))).toBe(true);
     expect(pillSpan.fg.equals(RGBA.fromHex("#FFFFFF"))).toBe(true);

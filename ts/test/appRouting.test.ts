@@ -22,23 +22,32 @@ interface Recorded extends RouterDeps {
   calls: string[];
   saved: SettingsData[];
   rescan: boolean[];
+  /** What the save seam will report; flip to false to simulate a disk
+   *  write failure (SPEC 13.2). */
+  saveResult: boolean;
 }
 
 function deps(settings: SettingsData = committed()): Recorded {
   const calls: string[] = [];
   const saved: SettingsData[] = [];
   const rescan: boolean[] = [];
-  return {
+  const rec: Recorded = {
     calls,
     saved,
     rescan,
+    saveResult: true,
     currentSettings: () => settings,
     manualRefresh: () => void calls.push("refresh"),
     openConsole: () => void calls.push("console"),
     openReleases: () => void calls.push("releases"),
     requestSkills: (refresh) => void (calls.push("skills"), rescan.push(refresh)),
-    saveSettings: (draft) => void (calls.push("save"), saved.push({ ...draft })),
+    saveSettings: (draft) => {
+      calls.push("save");
+      saved.push({ ...draft });
+      return rec.saveResult;
+    },
   };
+  return rec;
 }
 
 const app = (): UiApp => createUiApp();
@@ -186,7 +195,41 @@ describe("settings keys (SPEC 13.1)", () => {
     expect(a.settingsSel).toBe(3);
     handleKey(a, key("return"), d);
     expect(d.saved).toEqual([committed({ theme: "light" })]);
-    expect([a.view, a.settingsDraft]).toEqual(["dashboard", null]);
+    expect([a.view, a.settingsDraft, a.settingsSaveFailed]).toEqual(["dashboard", null, false]);
+  });
+
+  test("a failed save keeps the draft, stays on the form and raises the flag (SPEC 13.2)", () => {
+    const [a, d] = open();
+    handleKey(a, key("right"), d); // theme -> light, must survive the failure
+    for (let i = 0; i < 3; i++) handleKey(a, key("down"), d);
+    d.saveResult = false;
+    handleKey(a, key("return"), d);
+    expect(d.saved).toEqual([committed({ theme: "light" })]);
+    expect([a.view, a.settingsDraft, a.settingsSaveFailed]).toEqual([
+      "settings",
+      committed({ theme: "light" }),
+      true,
+    ]);
+    // the form keeps accepting edits while the failure hint shows
+    handleKey(a, key("up"), d);
+    expect(a.settingsSel).toBe(2);
+    // a later successful save leaves cleanly and clears the flag
+    d.saveResult = true;
+    handleKey(a, key("down"), d);
+    handleKey(a, key("return"), d);
+    expect([a.view, a.settingsDraft, a.settingsSaveFailed]).toEqual(["dashboard", null, false]);
+  });
+
+  test("Esc after a failed save discards the draft and clears the flag; reopening starts clean", () => {
+    const [a, d] = open();
+    d.saveResult = false;
+    for (let i = 0; i < 3; i++) handleKey(a, key("down"), d);
+    handleKey(a, key("return"), d);
+    expect(a.settingsSaveFailed).toBe(true);
+    handleKey(a, key("escape"), d);
+    expect([a.view, a.settingsDraft, a.settingsSaveFailed]).toEqual(["dashboard", null, false]);
+    handleKey(a, key("s"), d);
+    expect([a.view, a.settingsSaveFailed]).toEqual(["settings", false]);
   });
 
   test("Esc discards the draft", () => {

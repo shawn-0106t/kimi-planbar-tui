@@ -11,7 +11,10 @@
 //
 // Two best-effort shrink channels, both silent on failure, as in Rust:
 //  (a) the xterm window-size escape `ESC [ 8 ; rows ; cols t` — Windows
-//      Terminal 1.22+ (and conhost ignores it harmlessly);
+//      Terminal 1.22+; written only after ENABLE_VIRTUAL_TERMINAL_PROCESSING
+//      is turned on for the output handle, because conhost without VT echoes
+//      the escape as literal text into the primary buffer (REVIEW-RUST
+//      Minor 1);
 //  (b) the conhost Win32 sequence: shrink the viewport to 1x1, set the screen
 //      buffer to 72x13, then fit the viewport. `SetConsoleScreenBufferSize`
 //      takes COORD by value (4 bytes travel in a register per the x64 ABI),
@@ -43,7 +46,13 @@ interface ConsoleFns {
   GetConsoleProcessList: (list: unknown, max: number) => number;
   SetConsoleWindowInfo: (handle: number, absolute: number, rect: unknown) => number;
   SetConsoleScreenBufferSize: (handle: number, size: number) => number;
+  GetConsoleMode: (handle: number, mode: unknown) => number;
+  SetConsoleMode: (handle: number, mode: number) => number;
 }
+
+/** ENABLE_VIRTUAL_TERMINAL_PROCESSING: the output console-mode bit that makes
+ *  conhost interpret ANSI instead of echoing it (REVIEW-RUST Minor 1). */
+const ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
 
 /** The dlopen declaration table, exported so the regression test can pin the
  *  argument kinds: re-typing SetConsoleWindowInfo's third argument as a
@@ -54,6 +63,9 @@ export const consoleFnsDeclaration = {
   GetConsoleProcessList: { returns: FFIType.u32, args: [FFIType.ptr, FFIType.u32] },
   SetConsoleWindowInfo: { returns: FFIType.u8, args: [FFIType.i64, FFIType.u32, FFIType.ptr] },
   SetConsoleScreenBufferSize: { returns: FFIType.u8, args: [FFIType.i64, FFIType.u32] },
+  // CONSOLE_MODE is a u32 behind a pointer; kernel32 BOOL is a 4-byte int.
+  GetConsoleMode: { returns: FFIType.i32, args: [FFIType.i64, FFIType.ptr] },
+  SetConsoleMode: { returns: FFIType.i32, args: [FFIType.i64, FFIType.u32] },
 };
 
 // The import itself is portable (bun:ffi resolves on any host); only the
@@ -117,6 +129,46 @@ export function windowSizeEscape(cols: number, rows: number): string {
   return `\x1b[8;${rows};${cols}t`;
 }
 
+/** Turn on ENABLE_VIRTUAL_TERMINAL_PROCESSING for the console output handle
+ *  (REVIEW-RUST Minor 1). The Rust edition's crossterm enabled VT lazily, so
+ *  on conhost this escape was echoed as literal text into the primary buffer;
+ *  the TS edition owns the mode from the start, but the escape is gated on
+ *  this enable all the same. Returns false when the mode cannot be read or
+ *  set — the caller must then not write ANSI escapes. */
+export function enableVtProcessing(): boolean {
+  if (lib === null) return false;
+  try {
+    // i64 return → bigint from Bun; handles fit well below 2^53.
+    const out = Number(lib.symbols.GetStdHandle(STD_OUTPUT_HANDLE));
+    if (out === 0 || out === -1) return false;
+    const modeBuf = Buffer.alloc(4); // CONSOLE_MODE is a u32
+    if (lib.symbols.GetConsoleMode(out, ptr(modeBuf)) === 0) return false;
+    const mode = modeBuf.readUInt32LE(0);
+    return lib.symbols.SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Channel (a), gated on VT processing (REVIEW-RUST Minor 1): the escape is
+ *  written only when the output mode could be enabled, and a closed stdout
+ *  just means the channel is unavailable. Split out with injectable seams so
+ *  tests never touch the real console (like shrinkViaWin32). */
+export function writeSizeEscapeIfVt(
+  write: (chunk: string) => unknown,
+  enableVt: () => boolean = enableVtProcessing,
+  cols: number = MIN_WIN_COLS,
+  rows: number = MIN_WIN_ROWS,
+): boolean {
+  try {
+    if (!enableVt()) return false;
+    write(windowSizeEscape(cols, rows));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Channel (b): the conhost Win32 sequence. Split out from
  *  shrinkOwnedConsole() so tests never resize the terminal they run in. */
 export function shrinkViaWin32(cols: number, rows: number): boolean {
@@ -141,21 +193,16 @@ export function shrinkViaWin32(cols: number, rows: number): boolean {
   }
 }
 
-/** Shrink an owned console to 72x13 through both channels. */
+/** Shrink an owned console to 72x13 through both channels: the VT-gated
+ *  escape first, then the Win32 sequence (same order as the Rust oracle —
+ *  rust/src/app.rs::resize_owned_console). */
 export function shrinkOwnedConsole(
   cols: number = MIN_WIN_COLS,
   rows: number = MIN_WIN_ROWS,
   write: (chunk: string) => unknown = (s) => process.stdout.write(s),
 ): boolean {
-  let touched = false;
-  try {
-    // Windows Terminal 1.22+ honours this; conhost ignores it without harm.
-    write(windowSizeEscape(cols, rows));
-    touched = true;
-  } catch {
-    // a closed stdout just means channel (a) is unavailable
-  }
-  return shrinkViaWin32(cols, rows) || touched;
+  const escaped = writeSizeEscapeIfVt(write, enableVtProcessing, cols, rows);
+  return shrinkViaWin32(cols, rows) || escaped;
 }
 
 /** Startup entry point: guard, then shrink (SPEC 20, before terminal init). */

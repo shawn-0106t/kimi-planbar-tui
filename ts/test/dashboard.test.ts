@@ -68,8 +68,8 @@ describe("dashboard wireframe (SPEC 12)", () => {
     expect(g).toEqual([
       "Kimi Planbar TUI".padEnd(80 - 13) + "Updated 14:34",
       " ".repeat(80),
-      "5-hour usage   21%  " + "█".repeat(9) + "░".repeat(33) + "  Resets in 4h 30m",
-      "Weekly usage   18%  " + "█".repeat(8) + "░".repeat(34) + "  Resets in 5d 15h",
+      "5-hour usage    21%  " + "█".repeat(9) + "░".repeat(32) + "  Resets in 4h 30m",
+      "Weekly usage    18%  " + "█".repeat(7) + "░".repeat(34) + "  Resets in 5d 15h",
       " ".repeat(80),
       "Extra Usage   ¥12.34".padEnd(80),
       "  Used ¥45.67 this month / ¥100 limit".padEnd(80),
@@ -94,10 +94,10 @@ describe("dashboard wireframe (SPEC 12)", () => {
     const g = grid({ quota: null, update: null, width: 80 });
     expect(g[0]!.startsWith("Kimi Planbar TUI")).toBe(true);
     expect(g[0]!.trimEnd().endsWith("TUI")).toBe(true);
-    // bar budget: 80 - (14+4+2) = 60 cells; the two gap spaces after the bar
+    // bar budget: 80 - (14+5+2) = 59 cells; the two gap spaces after the bar
     // push the line to 82 and get clipped away
-    expect(g[2]).toBe("5-hour usage    --  " + "░".repeat(60));
-    expect(g[3]).toBe("Weekly usage    --  " + "░".repeat(60));
+    expect(g[2]).toBe("5-hour usage     --  " + "░".repeat(59));
+    expect(g[3]).toBe("Weekly usage     --  " + "░".repeat(59));
     expect(g[5]).toBe("Extra Usage   --".padEnd(80));
     expect(g[7]).toBe("Kimi Code CLI --".padEnd(80));
   });
@@ -117,13 +117,13 @@ describe("dashboard wireframe (SPEC 12)", () => {
   });
 
   test("the bar is dropped when fewer than 5 cells remain (SPEC 12.2)", () => {
-    // width 42: label+pct+gap = 20, reset budget 18, bar would get 4 cells
+    // width 42: label+pct+gap = 21, reset budget 18, bar would get 3 cells
     const g = grid({
       quota: quota({ fiveHour: seg(21, dt(NOW + 4 * H + 30 * 60_000)) }),
       update: null,
       width: 42,
     });
-    expect(g[2]!.trimEnd()).toBe("5-hour usage   21%  Resets in 4h 30m");
+    expect(g[2]!.trimEnd()).toBe("5-hour usage    21%  Resets in 4h 30m");
     expect(g[2]!.length).toBe(42);
     expect(g[2]).not.toContain("█");
     expect(g[2]).not.toContain("░");
@@ -135,23 +135,36 @@ describe("dashboard wireframe (SPEC 12)", () => {
       update: null,
       width: 30,
     });
-    expect(g[2]).toBe(("5-hour usage   21%  Resets in 4h 30m").slice(0, 30));
+    expect(g[2]).toBe(("5-hour usage    21%  Resets in 4h 30m").slice(0, 30));
   });
 
   test("percent display is unclamped while the bar is clamped (SPEC 12.2)", () => {
     const p = MOONLIT;
     const hot = usageLine(p, 80, "5-hour usage", seg(120.4, null), NOW);
-    expect(lineText(hot).slice(0, 20)).toBe("5-hour usage  120%  ");
-    expect(lineText(hot)).toContain("█".repeat(60));
+    expect(lineText(hot).slice(0, 20)).toBe("5-hour usage   120% ");
+    expect(lineText(hot)).toContain("█".repeat(59));
     const cold = usageLine(p, 80, "Weekly usage", seg(-5, null), NOW);
-    expect(lineText(cold).slice(0, 20)).toBe("Weekly usage   -5%  ");
-    expect(lineText(cold)).toContain("░".repeat(60));
+    expect(lineText(cold).slice(0, 20)).toBe("Weekly usage    -5% ");
+    expect(lineText(cold)).toContain("░".repeat(59));
   });
 
-  test("a percent longer than the 4-cell column is truncated, not overflowed", () => {
+  test("5000% keeps its % suffix in the 5-cell column (REVIEW-RUST Minor 4)", () => {
+    // limit<=0 guard can yield large raw percents; SPEC 12.2 displays them
+    // unclamped. The old 4-cell budget ate the % suffix (rust
+    // dashboard.rs::usage_line_keeps_percent_suffix is the oracle).
+    const big = usageLine(MOONLIT, 80, "5-hour usage", seg(5000, null), NOW);
+    expect(big.spans[1]!.text).toBe("5000%");
+    const plain = usageLine(MOONLIT, 80, "5-hour usage", seg(68, null), NOW);
+    expect(plain.spans[1]!.text).toBe("  68%");
+    const none = usageLine(MOONLIT, 80, "5-hour usage", null, NOW);
+    expect(none.spans[1]!.text).toBe("   --");
+  });
+
+  test("a percent longer than the 5-cell column is truncated, not overflowed", () => {
     const line = usageLine(MOONLIT, 80, "5-hour usage", seg(999995, null), NOW);
-    // "999995%" -> chars().take(4) -> "9999" (the % is eaten, like the Rust port)
-    expect(lineText(line).slice(0, 20)).toBe("5-hour usage  9999  ");
+    // "999995%" -> chars().take(5) -> "99999" (digits are never fabricated,
+    // the % suffix is simply eaten, like the Rust port)
+    expect(line.spans[1]!.text).toBe("99999");
   });
 
   test("Extra Usage three states (SPEC 12.4)", () => {

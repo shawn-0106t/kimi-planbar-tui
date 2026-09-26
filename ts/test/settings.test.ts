@@ -7,8 +7,11 @@ import {
   defaultSettings,
   loadSettings,
   parseSettingsJson,
+  reconcileNeedsApply,
+  regQueryRunValueCommand,
   saveSettings,
   settingsToJsonText,
+  writeSettingsAtomic,
   type SettingsData,
 } from "../src/core/settings.ts";
 import { goldenText, timezoneMatchesGolden } from "./goldens.ts";
@@ -131,6 +134,77 @@ describe("config dir + read/write (SPEC 18.1)", () => {
     // Rewriting what we loaded must produce the same bytes, or the two editions
     // would leave different files behind.
     expect(settingsToJsonText(data)).toBe(bytes);
+  });
+});
+
+describe("atomic save (SPEC 18.2, REVIEW-RUST Minor 2 / Suggestion 13)", () => {
+  test("saving renames a temp file over the target and leaves no temp behind", () => {
+    const dir = tempDir("atomic");
+    const data: SettingsData = { theme: "dark", refreshMinutes: 10, autoStart: true };
+    expect(saveSettings(data, dir)).toBe(true);
+    expect(readFileSync(join(dir, "settings.json"), "utf8")).toBe(settingsToJsonText(data));
+    expect(existsSync(join(dir, `settings.json.${process.pid}.tmp`))).toBe(false);
+  });
+
+  test("the temp file is PID-suffixed in the target directory, like the Rust oracle", () => {
+    const dir = tempDir("atomic-name");
+    let written: string | null = null;
+    const ok = writeSettingsAtomic('{"Theme":"dark"}', dir, 424242, (path, text) => {
+      written = path;
+      writeFileSync(path, text, "utf8");
+    });
+    expect(ok).toBe(true);
+    expect(written).toBe(join(dir, "settings.json.424242.tmp"));
+    // the rename moved it onto the target
+    expect(existsSync(written!)).toBe(false);
+    expect(readFileSync(join(dir, "settings.json"), "utf8")).toBe('{"Theme":"dark"}');
+  });
+
+  test("a failing write removes the half-written temp (Suggestion 13) and reports failure", () => {
+    const dir = tempDir("atomic-write-fail");
+    const boom = (path: string, text: string): void => {
+      expect(text).toBe("{}");
+      writeFileSync(path, "{", "utf8"); // a half-written temp, then the crash
+      throw new Error("disk on fire");
+    };
+    expect(writeSettingsAtomic("{}", dir, 777, boom)).toBe(false);
+    expect(existsSync(join(dir, "settings.json.777.tmp"))).toBe(false);
+    expect(existsSync(join(dir, "settings.json"))).toBe(false);
+  });
+
+  test("a failing rename cleans the temp up and reports failure too", () => {
+    const dir = tempDir("atomic-rename-fail");
+    // the target is occupied by a directory, so the rename cannot succeed
+    mkdirSync(join(dir, "settings.json"), { recursive: true });
+    expect(writeSettingsAtomic("{}", dir, 778)).toBe(false);
+    expect(existsSync(join(dir, "settings.json.778.tmp"))).toBe(false);
+  });
+
+  test("an unwritable config dir reports failure instead of throwing", () => {
+    const occupied = join(tempDir("atomic-dir-fail"), "occupied");
+    writeFileSync(occupied, "", "utf8");
+    expect(saveSettings(defaultSettings(), occupied)).toBe(false);
+  });
+});
+
+describe("autostart reconcile (SPEC 18.3, REVIEW-RUST Minor 2)", () => {
+  test("the decision matrix heals both directions but never repoints an existing value", () => {
+    expect(reconcileNeedsApply(true, false)).toBe(true); // missing value -> write it
+    expect(reconcileNeedsApply(false, true)).toBe(true); // stale value -> delete it
+    expect(reconcileNeedsApply(true, true)).toBe(false); // in sync; no repointing at launch
+    expect(reconcileNeedsApply(false, false)).toBe(false); // in sync
+  });
+
+  test("the existence probe queries the Run value by NAME, whatever its type", () => {
+    // get_raw_value(..).is_ok() in Rust: a hand-written REG_DWORD must count
+    // as existing, not be misread as "missing" and skip the delete.
+    expect(regQueryRunValueCommand()).toEqual([
+      "reg.exe",
+      "query",
+      "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      "/v",
+      "KimiPlanbarTui",
+    ]);
   });
 });
 

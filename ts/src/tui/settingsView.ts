@@ -5,19 +5,29 @@
 // snapshot-testable without a terminal.
 //
 // Row placement mirrors the Rust vertical layout — Length(3) title chunk with
-// Padding(2, 0, 1, 0) puts the heading on screen row 1 at indent 2, the Min(10)
-// chunk starts at row 3 and its Paragraph is inset one more row, so the form
-// body begins at row 4; Length(1) keeps the footer on the last row.
+// Padding(2, 0, 1, 0) puts the heading on screen row 1 at indent 2, and the
+// content chunk starts right below it (row 3): its bottom row already acts as
+// the spacer, so there is no extra inset row. Layout budget (REVIEW-RUST
+// Major B): the form is 9 content lines — no blank rows between groups beyond
+// the one under the Theme heading — so checkbox, Save and footer all stay
+// visible at the 72×13 minimal window (3 + 9 + 1 = 13, SPEC 20).
 
 import type { SettingsData } from "../core/settings.ts";
 import type { Palette } from "../core/theme.ts";
 import { padLineToWidth, tline, tspan, type TuiLine } from "./line.ts";
 
-export const SETTINGS_FOOTER = "↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel";
+export const SETTINGS_FOOTER = "↑/↓ Move · ←/→ Change · Enter Save/Toggle · Esc Cancel · q Quit";
+
+/** A failed Save swaps the footer for a hint until the next attempt, Esc, or
+ *  form re-open (SPEC 13.2: a failed save must never read as saved, and must
+ *  not be a silent dead key either; REVIEW-RUST Suggestion 16). */
+export const SETTINGS_SAVE_FAILED_FOOTER =
+  "Save failed — could not write settings.json · Esc Cancel · q Quit";
 
 const TITLE = "Kimi Planbar TUI Settings";
-/** Length(3) chunk + the one-row inset of the Min(10) chunk = 4 header rows. */
-const HEADER_ROWS = 4;
+/** Length(3) title chunk: the form body begins at row 3 (REVIEW-RUST Major B:
+ *  the old one-row inset cost a row the minimal window does not have). */
+const HEADER_ROWS = 3;
 
 /** SPEC 13.2 option tables (value, label). */
 export const THEME_OPTIONS: readonly [string, string][] = [
@@ -72,28 +82,25 @@ export function settingsHeaderRows(p: Palette): TuiLine[] {
     tline([]),
     tline([tspan(`  ${TITLE}`, { fg: p.textPrimary, bold: true })]),
     tline([]),
-    tline([]),
   ];
 }
 
 /** The form as ratatui's Paragraph would lay it out, header rows included and
- *  nothing clipped (the caller owns the viewport). */
+ *  nothing clipped (the caller owns the viewport). 9 content lines: no spacer
+ *  rows between groups beyond the one under the Theme heading, so the form
+ *  fits the 9 inner rows of the 72×13 minimal window (REVIEW-RUST Major B). */
 export function renderSettingsFormRows(draft: SettingsData, sel: number, p: Palette): TuiLine[] {
   return [
     ...settingsHeaderRows(p),
     heading("Theme", p),
     tline([]),
     ...THEME_OPTIONS.map(([value, label]) => radio(draft.theme === value, sel === 0, label, p)),
-    tline([]),
     heading("Refresh interval", p),
-    tline([]),
     pillLine(draft, sel, p),
-    tline([]),
     tline([
       tspan(draft.autoStart ? "[x] " : "[ ] ", { fg: draft.autoStart ? p.accent : p.textSecondary }),
       tspan("Launch at Windows startup", selStyle(sel === 2, p)),
     ]),
-    tline([]),
     tline([
       tspan(" Save ", {
         fg: sel === 3 ? ACTIVE_FG : p.textPrimary,
@@ -122,6 +129,7 @@ export function renderSettingsRows(input: {
   );
 }
 
-export function settingsFooterLine(p: Palette, width: number): TuiLine {
-  return padLineToWidth(tline([tspan(SETTINGS_FOOTER, { fg: p.textSecondary })]), width, p.windowBg);
+export function settingsFooterLine(p: Palette, width: number, saveFailed = false): TuiLine {
+  const text = saveFailed ? SETTINGS_SAVE_FAILED_FOOTER : SETTINGS_FOOTER;
+  return padLineToWidth(tline([tspan(text, { fg: p.textSecondary })]), width, p.windowBg);
 }

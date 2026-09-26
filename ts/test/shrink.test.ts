@@ -13,6 +13,7 @@ import {
   packSmallRect,
   shouldShrinkWindow,
   windowSizeEscape,
+  writeSizeEscapeIfVt,
 } from "../src/tui/shrink.ts";
 
 describe("console ownership guard (SPEC 20)", () => {
@@ -75,5 +76,36 @@ describe("shrink channels (SPEC 20)", () => {
     // to a by-value u64 is exactly the 2026-09-25 segfault (HANDOFF.md §2).
     expect(consoleFnsDeclaration.SetConsoleWindowInfo.args[2]).toBe(FFIType.ptr);
     expect(consoleFnsDeclaration.SetConsoleScreenBufferSize.args[1]).toBe(FFIType.u32);
+  });
+
+  test("the escape is written only after VT processing could be enabled (REVIEW-RUST Minor 1)", () => {
+    // crossterm enabled VT lazily in the Rust edition, so on conhost an
+    // unprocessed escape was echoed as literal text into the primary buffer;
+    // the shrink therefore gates channel (a) on the mode enable.
+    const written: string[] = [];
+    expect(writeSizeEscapeIfVt((s) => void written.push(s), () => true)).toBe(true);
+    expect(written).toEqual(["\x1b[8;13;72t"]);
+
+    // VT enable failed (conhost refusing the mode): no escape, no echo — only
+    // the Win32 sequence (channel b) may run.
+    expect(writeSizeEscapeIfVt((s) => void written.push(s), () => false)).toBe(false);
+    expect(written.length).toBe(1);
+  });
+
+  test("a closed stdout only takes channel (a) down, never the whole shrink", () => {
+    expect(
+      writeSizeEscapeIfVt(() => {
+        throw new Error("EPIPE");
+      }, () => true),
+    ).toBe(false);
+  });
+
+  test("the console-mode calls are declared with the right shapes", () => {
+    // GetConsoleMode: HANDLE + out CONSOLE_MODE*; SetConsoleMode: HANDLE + u32
+    // mode (0x0004 = ENABLE_VIRTUAL_TERMINAL_PROCESSING is OR-ed in).
+    expect(consoleFnsDeclaration.GetConsoleMode.args).toEqual([FFIType.i64, FFIType.ptr]);
+    expect(consoleFnsDeclaration.GetConsoleMode.returns).toBe(FFIType.i32);
+    expect(consoleFnsDeclaration.SetConsoleMode.args).toEqual([FFIType.i64, FFIType.u32]);
+    expect(consoleFnsDeclaration.SetConsoleMode.returns).toBe(FFIType.i32);
   });
 });

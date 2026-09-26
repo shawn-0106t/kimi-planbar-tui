@@ -21,6 +21,7 @@ import { fetchQuota, type QuotaResult } from "../core/quota.ts";
 import {
   applyAutoStart,
   loadSettings,
+  reconcileAutoStart,
   saveSettings as writeSettings,
   type SettingsData,
 } from "../core/settings.ts";
@@ -72,6 +73,9 @@ export interface UiApp {
   settingsDraft: SettingsData | null;
   /** Selected settings row: 0 Theme, 1 Interval, 2 AutoStart, 3 Save. */
   settingsSel: number;
+  /** A failed Save keeps the draft and the form open and flips this on until
+   *  the next attempt, Esc, or form re-open (SPEC 13.2, REVIEW-RUST Minor 2). */
+  settingsSaveFailed: boolean;
   skillsRows: SkillRow[];
   skillsSel: number;
   skillsLoading: boolean;
@@ -85,6 +89,7 @@ export function createUiApp(quota: QuotaResult | null = null): UiApp {
     update: null,
     settingsDraft: null,
     settingsSel: 0,
+    settingsSaveFailed: false,
     skillsRows: [],
     skillsSel: 0,
     skillsLoading: false,
@@ -101,8 +106,10 @@ export interface RouterDeps {
   openConsole(): void;
   openReleases(): void;
   requestSkills(refresh: boolean): void;
-  /** SPEC 13.2 save order: JSON -> autostart -> theme -> reschedule. */
-  saveSettings(draft: SettingsData): void;
+  /** SPEC 13.2 save order: JSON -> autostart -> theme -> reschedule. Returns
+   *  false when the disk write failed: the router then keeps the draft, stays
+   *  on the form and shows the "Save failed" footer (REVIEW-RUST Minor 2). */
+  saveSettings(draft: SettingsData): boolean;
 }
 
 const THEMES: readonly string[] = ["system", "light", "dark"];
@@ -144,6 +151,7 @@ export function handleKey(app: UiApp, key: KeyPress, deps: RouterDeps): void {
         case "s":
           app.settingsDraft = { ...deps.currentSettings() };
           app.settingsSel = 0;
+          app.settingsSaveFailed = false;
           app.view = "settings";
           break;
         case "k":
@@ -168,6 +176,7 @@ export function handleKey(app: UiApp, key: KeyPress, deps: RouterDeps): void {
       switch (key.name) {
         case "escape":
           app.settingsDraft = null;
+          app.settingsSaveFailed = false;
           app.view = "dashboard";
           return;
         case "up":
@@ -196,10 +205,16 @@ export function handleKey(app: UiApp, key: KeyPress, deps: RouterDeps): void {
             draft.refreshMinutes = cycle(INTERVALS, draft.refreshMinutes, 1);
           } else if (app.settingsSel === 2) {
             draft.autoStart = !draft.autoStart;
-          } else {
-            deps.saveSettings(draft);
+          } else if (deps.saveSettings(draft)) {
             app.settingsDraft = null;
+            app.settingsSaveFailed = false;
             app.view = "dashboard";
+          } else {
+            // SPEC 13.2 (REVIEW-RUST Minor 2): on a disk write failure the
+            // draft is kept and the form stays open with a "Save failed"
+            // footer hint — returning to the dashboard would imply the
+            // settings were saved when they were not.
+            app.settingsSaveFailed = true;
           }
           return;
       }
@@ -257,7 +272,7 @@ export function renderFrame(
     case "settings":
       return composeFrame(
         renderSettingsRows({ draft: app.settingsDraft, sel: app.settingsSel, width, height, palette: p }),
-        settingsFooterLine(p, width),
+        settingsFooterLine(p, width, app.settingsSaveFailed),
         width,
         height,
         p.windowBg,
@@ -315,12 +330,17 @@ export function registerExitHandlers(
   };
 }
 
-/** SPEC 20 startup order: shrink the owned window -> load settings -> apply
- *  theme -> init terminal -> event loop -> 2 s first refresh -> update check. */
+/** SPEC 20 startup order: shrink the owned window -> load settings ->
+ *  reconcile autostart -> apply theme -> init terminal -> event loop -> 2 s
+ *  first refresh -> update check. */
 export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTuiRenderer): Promise<void> {
   shrinkOwnedConsoleIfOwned();
 
   const settings = loadSettings();
+  // Registry reconciliation (REVIEW-RUST Minor 2, SPEC 18.3): settings.json is
+  // the source of truth; heal a stale HKCU Run value left behind by a legacy
+  // non-atomic write (or manual edit) before the UI ever renders it.
+  reconcileAutoStart(settings);
   const eff = effectiveTheme(settings.theme, () => systemThemeSync());
   const state: AppState = createAppState(settings, eff);
   const app = createUiApp();
@@ -430,11 +450,15 @@ export async function runTui(makeRenderer: () => Promise<TuiRenderer> = createTu
     requestSkills,
     saveSettings: (draft) => {
       // SPEC 13.2 order: write settings.json -> autostart -> theme -> timer.
-      writeSettings(draft);
+      // On a disk write failure the follow-up steps are skipped with the
+      // write (the router keeps the draft and the form open, REVIEW-RUST
+      // Minor 2).
+      if (!writeSettings(draft)) return false;
       applyAutoStart(draft);
       state.settings = draft;
       state.effectiveTheme = effectiveTheme(draft.theme, () => systemThemeSync());
       polling.reschedule();
+      return true;
     },
   };
 

@@ -1,8 +1,9 @@
 // Read-only skills list view — a pure port of rust/src/ui/skills_view.rs to
 // the TuiLine model (SPEC 21.3): a "N skills" summary in the title, rows
 // grouped by source, two display lines per skill, and a viewport that keeps
-// the selected row visible. Selection moves over items only (group headers are
-// skipped) exactly like app.rs::move_skills_sel.
+// the selected item's name AND description lines visible (REVIEW-RUST
+// Minor 11). Selection moves over items only (group headers are skipped)
+// exactly like app.rs::move_skills_sel.
 
 import type { SkillInfo } from "../core/skills.ts";
 import type { Palette } from "../core/theme.ts";
@@ -86,6 +87,17 @@ export function skillsDisplayLines(rows: SkillRow[], sel: number, p: Palette): {
   return { lines, rowLine };
 }
 
+/** Scroll offset keeping the selected item FULLY visible — its name line AND
+ *  description line (each item renders as two lines, SPEC 21.3). A selection
+ *  that already fits never scrolls; `maxScroll` pins the view to the last
+ *  page; out-of-range selections and short lists clamp safely. Pure so the
+ *  both-lines-visible invariant is unit-testable (REVIEW-RUST Minor 11: the
+ *  old `selLine + 1` budget pinned the name row to the bottom edge and
+ *  clipped the description line right below the fold). */
+export function scrollFor(selLine: number, viewport: number, maxScroll: number): number {
+  return Math.min(Math.max(0, selLine + 2 - viewport), maxScroll);
+}
+
 /** SPEC 21.3: the top line is the title + summary; the summary counts items,
  *  and reads "Scanning..." while a background rescan is in flight (SPEC 21.2). */
 export function skillsHeaderRows(summary: string, p: Palette): TuiLine[] {
@@ -113,11 +125,12 @@ export function renderSkillsRows(input: {
   const summary = count === null ? "Scanning..." : `${count} skills`;
   const { lines, rowLine } = skillsDisplayLines(rows, sel, p);
 
-  // Keep the selected row's first line inside the viewport (skills_view.rs:96).
+  // Keep the selected item's name AND description lines inside the viewport
+  // (rust/src/ui/skills_view.rs::scroll_for, REVIEW-RUST Minor 11).
   const viewport = Math.max(0, height - HEADER_ROWS - 1);
   const selLine = rowLine[sel] ?? 0;
   const maxScroll = Math.max(0, lines.length - viewport);
-  const scroll = selLine >= viewport ? Math.min(selLine + 1 - viewport, maxScroll) : 0;
+  const scroll = scrollFor(selLine, viewport, maxScroll);
   const visible = viewport > 0 ? lines.slice(scroll, scroll + viewport) : [];
 
   return [...skillsHeaderRows(summary, p), ...visible].map((l) =>
