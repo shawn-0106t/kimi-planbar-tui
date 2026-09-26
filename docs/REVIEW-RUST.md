@@ -1,5 +1,7 @@
 # Rust 版全量代码审查清单（REVIEW-RUST）
 
+> **归档声明（2026-09-26）**：本台账为 2026-09-25 起对 Rust 版的四轮独立审查档案，全部条目已闭环——2 Major + 9 Minor + 13 Suggestion 中 24 项修复（四个批次，`1779e33` 入库）、2 项登记不修（Suggestion 10 属 SPEC 11.1 合规、17 待四版统一）；`cargo test` 28/28。文中 `file:line` 为各审查时点快照，可能随后续改动漂移；Rust 与其他版差异的最新登记以 `docs/SPEC.md` 第 22 章为准。
+
 > 审查对象：commit `53d519d`（2026-09-25）时的 `rust/src/` 全部 14 个源文件、`rust/src/ui/` 三视图、`rust/build.rs`、`rust/Cargo.toml` 及内嵌单元测试。
 > 方法：独立 code-reviewer subagent 一轮（只读、以证伪为导向，假设至少存在 2 处缺陷），自行重跑验收命令并对 vendored 依赖源码取证。
 > 结论：**无 Blocker**；2 个 Major、9 个 Minor、13 个 Suggestion（9–10 为 2026-09-25 复核新增，11–14 为 2026-09-26 复审新增，Major B + 15–18 为 2026-09-26 第三轮独立审查新增，19–21 为 2026-09-26 第四轮独立审查新增，见文末四节"复核记录"）。

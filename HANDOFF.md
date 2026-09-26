@@ -181,6 +181,8 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 
 **未来发版 checklist**（本机已全自动跑通一次）：`ts/package.json` bump → `bun run test` → `bun run build:exe` → `sha256sum` 生成 `SHA256SUMS.txt`（gitignored）→ annotated tag 推送 → `gh release create <tag> ts/dist/kpt-tui.exe SHA256SUMS.txt --title ... --notes-file ...`（本机 gh 2.97.0 已认证 `shawn-0106t`，全程无需浏览器）→ `gh release view` 核对附件字节数。发布前冒烟：`./dist/kpt-tui.exe --test-fetch`（`no-token` 需先跑一次 `kimi` 命令刷新 CLI token，属环境态非构建缺陷——Rust 版可作对照）。
 
+> **2026-09-26 增补（Rust 修复入库 + 本地打包；取代本节"暂不发 0.1.3"的判断）**：REVIEW-RUST 台账已全部闭环（四轮独立审查 Approve：24 项修复 + 2 项登记不修；28 测试全绿），修复以 **`1779e33`** 入库 main。本地已打包 **`dist/kimi-planbar-tui-0.1.1-g1779e33.exe`**（未发布；版本号未 bump，文件名以 g+短哈希区分有 bug 的旧 v0.1.1；`--test-update` 冒烟全绿）。**联合发版**（待 ts/go 就绪一起发）时：tag `v0.1.2` 已被 TS 版占用，Rust 版本号建议 Cargo.toml 直接 bump 到 **0.1.3** 并打 `v0.1.3`，或改用 `rust-v*` 前缀 tag——二选一待维护者拍板。另：Rust 第三批起的对齐缺口（Major B / Minor 11 / Suggestion 13/16 等 4 项）已登记进 `docs/PLAN-GO.md` 的对齐小节，TS 两版对应移植同批执行（见 PLAN-GO 对齐小节）。
+
 ## 13. Rust 版全量审查（2026-09-25）
 
 对推荐版 `rust/`（oracle 基准）做了首次全量独立审查，台账见 **`docs/REVIEW-RUST.md`**。结论：**无 Blocker；1 Major / 5 Minor / 3 Suggestion**，`cargo test` 15/15、`--test-fetch`/`--test-update` 实测正常，总体称职、修复 Major 后可继续信任其 oracle 地位。

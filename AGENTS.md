@@ -6,7 +6,7 @@ Guidance for AI coding agents working in this repository. Read this first; it as
 
 Kimi Planbar TUI is a **terminal-resident dashboard** (no tray, no windows, no animations) that shows Kimi Code plan quota — 5-hour window + weekly usage with reset countdowns, Extra Usage booster wallet, Kimi Code CLI version check, and a read-only skills list — inside a terminal. It reads the local Kimi Code CLI OAuth token (read-only) and calls `GET https://api.kimi.com/coding/v1/usages`.
 
-This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition (maintained, recommended); `ts-nodejs/` holds the Node edition and `ts/` holds the Bun + OpenTUI edition — both supported alternatives with the same UI and behavior (`ts/` was frozen as experimental from 2026-09-19 to 2026-09-25 and was unfrozen to land the owned-console startup crash fix; see `HANDOFF.md`). Where a TS edition is not mechanically equivalent to Rust, the register is **SPEC chapter 22** (`docs/SPEC.md` / `docs/SPEC_EN.md`), filed by SPEC chapter number.
+This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition (maintained, recommended); `ts-nodejs/` holds the Node edition and `ts/` holds the Bun + OpenTUI edition — both supported alternatives with the same UI and behavior (`ts/` was frozen as experimental from 2026-09-19 to 2026-09-25 and was unfrozen to land the owned-console startup crash fix; see `HANDOFF.md`) — and `go/` holds the Go edition (bubbletea v2 / lipgloss, fourth implementation; M0–M4 complete, doc sync pending — see `docs/PLAN-GO.md`). Where a TS edition is not mechanically equivalent to Rust, the register is **SPEC chapter 22** (`docs/SPEC.md` / `docs/SPEC_EN.md`), filed by SPEC chapter number.
 
 Current version: **0.1.1** in `rust/Cargo.toml` and `ts-nodejs/package.json`, **0.1.2** in `ts/package.json` (each edition bumps independently; versioning is **independent** of the sibling tray app `kimi-planbar-tray`).
 
@@ -39,7 +39,10 @@ Data contract shared with the tray edition: same credential chain, same `setting
 │       ├── state.rs            # AppState shared state (last-good cache, skills cache, manual-refresh debounce)
 │       ├── app.rs              # TUI bootstrap + event loop (tokio::select!; new code)
 │       ├── format.rs           # FormatReset / FmtYuan / percent display helpers (ported from the tray edition's src/common.ts)
+│       ├── http.rs             # shared reqwest Client (one pool for the quota fetch + the update check)
 │       └── ui/                 # ratatui view layer (new code): dashboard.rs, settings_view.rs, skills_view.rs
+│   └── scripts/
+│       └── verify/             # send-ctrl-break.ps1 — manual-acceptance probe (broadcasts CTRL_BREAK_EVENT to the console)
 ├── ts/                         # TS edition (Bun): unfrozen 2026-09-25 (was experimental/frozen), independent version
 │   ├── package.json            # scripts: dev / test / parity / selfcheck:* / build:exe; name kimi-planbar-tui-ts
 │   ├── README.md               # directory notice (unfrozen 2026-09-25, maintained again)
@@ -56,15 +59,22 @@ Data contract shared with the tray edition: same credential chain, same `setting
 │   ├── src/main.ts             # entry; --test-fetch / --test-update before anything else
 │   ├── scripts/                # run-tests.mjs (TZ pin), run-parity.mjs, build-sea.mjs, verify/ (WT window probing helpers)
 │   └── test/                   # node:test suites via test/bun-shim.ts + golden/ + parity/ (same oracle set as ts/)
+├── go/                         # Go edition (bubbletea v2 / lipgloss): fourth implementation, M0–M4 done — see docs/PLAN-GO.md (M5 doc sync pending)
+│   ├── internal/core/          # 10 UI-agnostic modules mirroring rust/src/*.rs (+ the 2026-09-26 Rust-fix alignment ports)
+│   ├── internal/tui/           # bubbletea/lipgloss render layer: line, app, dashboard, settingsview, skillsview, shrink
+│   ├── scripts/
+│   │   └── probe-owned-console/  # Go-native owned-console acceptance probe (CREATE_NEW_CONSOLE + AttachConsole)
+│   └── testdata/golden/        # Rust-oracle goldens shared with the other editions (reset_time.txt etc.)
 ├── docs/
 │   ├── SPEC.md                 # authoritative behavior contract (Chinese), shared by the Rust and TS editions
 │   │                           # chapter 22 registers where each TS edition is NOT equivalent to Rust
 │   ├── SPEC_EN.md              # English translation, identical chapter numbering
-│   ├── REVIEW-M1.md            # M1 core-layer audit ledger: 5 Major + 7 Minor, plus a measured
-│   │                           # status table (file:line per item, incl. what is deliberately untested)
-│   └── REVIEW-RUST.md          # 2026-09-25 full audit of the Rust edition: 1 Major (fmt_yuan i64::MIN
-│                               # recursion → terminal stranding) + 5 Minor + 3 Suggestion, test-coverage
-│                               # gaps, and a backfill table (all unfixed, pending maintainer decision)
+│   ├── REVIEW-M1.md            # M1 core-layer audit ledger (archived 2026-09-20): 5 Major + 7 Minor, all
+│   │                           # closed; a measured status table (file:line per item, incl. what is deliberately untested)
+│   └── REVIEW-RUST.md          # Rust audit ledger (archived 2026-09-26): 2026-09-25 full audit plus four
+│                               # 2026-09-26 independent reviews — 2 Major (fmt_yuan i64::MIN recursion →
+│                               # terminal stranding; settings view clipped at 72x13) + 9 Minor + 13 Suggestion;
+│                               # ALL closed (24 fixed in four batches, Suggestion 10/17 registered-not-fixed)
 ├── HANDOFF.md                  # 2026-09-25 incident record: Bun edition "unusable" root cause
 │                               # (shrink.ts FFI pointer bug → segfault on owned-console launch), evidence chain, fixes
 ├── AGENTS.md / README.md / README_CN.md
@@ -108,7 +118,7 @@ Run the exe inside a terminal: **Windows Terminal** or the **VS Code integrated 
 
 Rust edition:
 
-- `cargo test` (in `rust/`) — unit tests for the skills frontmatter parser (ported from the tray edition) and quota JSON parsing (string/number mixed fields, `isEnabled=false`, unit rounding, divide-by-zero). This is the first real parsing test suite in the project family.
+- `cargo test` (in `rust/`) — 28 unit tests: skills frontmatter parser (ported from the tray edition), quota JSON parsing (string/number mixed fields, `isEnabled=false`, unit rounding, divide-by-zero, `i64::MIN` extremes), format ladder + `fmt_yuan` extremes, credentials config.toml ladder, settings-view 72×13 visibility (TestBackend), skills scroll invariant, and the key-routing suite.
 - Headless self-check args (SPEC chapter 19), printed to stdout then exit:
 
 ```bash
@@ -168,6 +178,10 @@ After changes: `cargo build` + `cargo test` (in `rust/`), then run `--test-fetch
 - **Failure semantics**: on fetch failure keep the last good values on screen and retry after 30 s; on success return to the configured interval (1/5/10/30 min, default 5). First refresh fires 2 s after launch. Manual refresh (`r` key) has a **2 s debounce** — repeats within 2 s are silently ignored. (SPEC 16.5, 12.7)
 - **Portable mode**: an empty `portable.dat` next to the exe redirects `settings.json` to the exe directory instead of `%APPDATA%\KimiPlanbarTui\`. (SPEC 18.1)
 - **Terminal restore on exit**: the app enters raw mode + alternate screen on startup and **must** restore the terminal (leave alternate screen, disable raw mode, show cursor) on every exit path — normal quit (`q`), and panic via a panic hook. A stranded terminal is the worst possible bug for a TUI. (SPEC 20)
+- **Panic hook splits by panic strategy**: release runs `panic = "abort"` — the hook's terminal restore is the LAST chance and must run unconditionally; debug builds unwind (a tokio worker panic is swallowed, the app keeps running) so only the main thread may restore. Never collapse this into a single unconditional or single main-thread behavior. (`app.rs`, REVIEW-RUST Minor 5)
+- **Console ctrl events bypass every other restore path**: Ctrl+Break (CTRL_BREAK_EVENT), console window close (CTRL_CLOSE_EVENT) and out-of-band CTRL_C_EVENT reach the `SetConsoleCtrlHandler` handler, which runs the same restore sequence then returns FALSE for default termination. Keyboard Ctrl+C in raw mode generates no console event — it takes the normal key path. LOGOFF/SHUTDOWN deliberately unhandled. (SPEC 20, REVIEW-RUST Minor 15/21)
+- **settings.json is atomic and reconciled**: PID-suffixed temp file + `rename` (never truncate-write); a write failure keeps the draft on the Settings form with a `Save failed` footer. At startup the HKCU Run value is reconciled toward settings.json — deleted when AutoStart=false, written when true-and-missing, and an existing value is **never repointed** at startup. (SPEC 18.2/18.3, REVIEW-RUST Minor 2)
+- **Skills scroll counts both lines; the settings form is 9 lines**: `scroll_for` budgets `sel_line + 2` so the selected item's name AND description rows stay visible, and the compacted settings form fits the 72×13 minimal window entirely (checkbox, Save, footer). (REVIEW-RUST Minor 11 / Major B)
 - **Never resize a shared console**: startup shrinks the window to the wireframe minimum (72×13) only when the process owns its console outright (`GetConsoleProcessList` returns exactly 1 attached process — a double-click / fresh-window launch). That guard must stay; launching from an existing terminal session must leave the user's window untouched. (SPEC 20)
 - **Event-driven redraw + 250 ms heartbeat**: every event (keyboard/resize, mpsc messages, theme tick) redraws immediately — there is no coalescing throttle. A 250 ms heartbeat tick (`draw_tick`) wakes the loop when idle so countdown text stays fresh; countdowns are recomputed on each redraw, so there is no 1 Hz timer. (SPEC 20)
 - **System theme polling**: crossterm has no system-event source, so `theme=system` is implemented as a **30 s registry poll** of `AppsUseLightTheme` (replaces the tray edition's `WM_SETTINGCHANGE` listener). Only applies when the theme setting is `system`. (SPEC 20)
