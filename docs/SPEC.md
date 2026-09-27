@@ -654,6 +654,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 **Node 版（手写 ANSI 渲染层）**：
 
 - 渲染层为手写 ANSI（`tui/ansi.ts`、`wcwidth.ts`、`screen.ts`、`terminal.ts`），无任何第三方 TUI 库。帧模型 = `TuiLine[]`；写屏为**行级 diff**：与上一帧逐行比对，仅对变化行发 `\x1b[{row};1H` + 行内容；首帧 `\x1b[2J\x1b[H` 全清；帧首尾包 DEC 2026 同步输出（不支持的终端静默忽略私有模式）；底行不写满最后一格（防右下角 cell 触发整屏上滚，配合启动时 DECAWM 关 `\x1b[?7l` 双保险）。
+- **整屏底色 = span 级 windowBg 兜底 + 行尾 pad（2026-09-27 修复）**：手写层没有 ratatui 整屏 `Block::bg` 的等价物，此前只有「行尾 window_bg pad」一半——**不带自有 bg 的 span（如 usage bar 的 fg-only `░` run）在 span 开头的 SGR reset 后落到终端默认底色**。终端默认背景为深色时（WT/多数 conhost）不可见，**默认背景为浅色的 conhost 配色下整帧碎裂**（2026-09-27 用户实机发现：usage bar 区域呈白色点阵马赛克、行间空隙露白——同帧 filler 行正常，因它们是整行 pad span）。修复：`renderRow` 对每个无 bg 的 span 兜底注入 `window_bg`，与行尾 pad、帧补齐全高共同构成等效整屏填充；无 bg span 的字节级断言钉在 `test/screen.test.ts`。此缺陷自 Node 版 M2 起即存在，WT 深色默认底长期掩盖。
 - **sanitize 是注入防线的唯一关卡**：没有 widget 级免疫，一切外部字符串（skill 名称/描述、API 文案）进帧前过 `sanitize()`（先整段剥 ANSI 序列——CSI 与 OSC/DCS/SOS/PM/APC 字符串序列，后者缺终止符时剥到输入末尾——再剥残余控制符）；测试含注入用例。
 - wcwidth 为内嵌码点区间表（`tui/wcwidth.ts`），不引 npm 包。
 - raw mode 与 VT 输入/输出模式由 Node 在 TTY 上自动处理（`ENABLE_VIRTUAL_TERMINAL_PROCESSING` / `ENABLE_VIRTUAL_TERMINAL_INPUT`），无需 Win32 调用；但恢复处理器必须在终端初始化**之前**注册（对齐 Rust panic hook 先于终端初始化），且 `createTerminal()` 自身对 ENTER 之后的步骤做 try/catch——失败先写 LEAVE 再抛。

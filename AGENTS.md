@@ -209,6 +209,7 @@ TS-edition traps (full register: SPEC chapter 22). **Cross-edition rules (East A
 
 Node-edition-only traps (`ts-nodejs/`; SPEC §22.5/§22.6):
 
+- **Every span sits on the windowBg — `renderRow` falls a bg-less span back to `window_bg`**: a fg-only span (the usage bar's `░` run fills its row exactly, so the trailing pad never fires) otherwise shows the terminal's DEFAULT background after the leading SGR reset. Invisible on a dark-default terminal (WT), a shattered white-mosaic frame on a light-default conhost color scheme (found 2026-09-27 in a user's cmd window; the defect had existed since M2). (SPEC §22.5)
 - **The 250 ms draw heartbeat is the event loop's keep-alive anchor — never `unref` it**: a pending promise does not hold Node's loop open and a piped stdin holds no handle; the heartbeat is cleared by the unified teardown path on quit. (SPEC §22.5)
 - **Erasable-syntax-only TypeScript**: Node type stripping rejects enums, namespaces and constructor parameter properties at load time (M2-N hit this with a parameter property in `screen.ts`). `npm run typecheck` must stay at 0 errors. (SPEC §22.5)
 - **`--use-system-ca` needs Node ≥ 24.6** (`engines` pins it) and — unlike the Bun build — the SEA exe gets it baked in via `execArgv`, so the GitHub API fallback works in the compiled build too. (SPEC §22.4)

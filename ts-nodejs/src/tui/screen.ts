@@ -28,7 +28,14 @@ export function renderRow(line: TuiLine, width: number, windowBg: string): strin
     const text = clipToWidth(sanitize(span.text), width - used);
     if (text === "") continue;
     used += stringWidth(text);
-    out += sgrOpen(span) + text;
+    // Every cell sits on the windowBg: a span without its own bg lets the
+    // terminal's DEFAULT background show through after the leading SGR reset
+    // — invisible on a dark-default terminal (WT), a broken-looking frame on
+    // a light-default conhost (measured 2026-09-27: the usage bar's ░ run
+    // rendered as a white mosaic). Ratatui/OpenTUI/lipgloss all paint a
+    // full-screen window bg; this fallback plus the right-edge pad below is
+    // this renderer's equivalent (SPEC §22.5).
+    out += sgrOpen(span.bg !== undefined ? span : { ...span, bg: windowBg }) + text;
   }
   if (used < width) out += sgrOpen({ bg: windowBg }) + " ".repeat(width - used);
   return out + SGR_RESET;

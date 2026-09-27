@@ -68,25 +68,37 @@ describe("sgrOpen", () => {
 describe("renderRow (plan §2.4)", () => {
   test("hard-clips overflow instead of wrapping (SPEC 12.2)", () => {
     const out = renderRow(tline([tspan("abcdef")]), 3, BG);
-    expect(out).toBe(`${SGR_RESET}abc${SGR_RESET}`);
+    expect(out).toBe(`${SGR_RESET}${BG_SGR}abc${SGR_RESET}`);
   });
 
   test("clips by cell width: a wide char on the boundary is dropped, not split", () => {
     // "ab中" against width 3: '中' needs 2 cells with only 1 left -> dropped,
     // the last cell is a windowBg space.
     const out = renderRow(tline([tspan("ab中")]), 3, BG);
-    expect(out).toBe(`${SGR_RESET}ab${SGR_RESET}${BG_SGR} ${SGR_RESET}`);
+    expect(out).toBe(`${SGR_RESET}${BG_SGR}ab${SGR_RESET}${BG_SGR} ${SGR_RESET}`);
   });
 
   test("pads the right edge with a windowBg run", () => {
     const out = renderRow(tline([tspan("abc")]), 5, BG);
-    expect(out).toBe(`${SGR_RESET}abc${SGR_RESET}${BG_SGR}  ${SGR_RESET}`);
+    expect(out).toBe(`${SGR_RESET}${BG_SGR}abc${SGR_RESET}${BG_SGR}  ${SGR_RESET}`);
   });
 
   test("span styles reach the wire", () => {
     const out = renderRow(tline([tspan("x", { fg: "#FF0000", bold: true })]), 1, BG);
     expect(out).toContain("\x1b[38;2;255;0;0m");
     expect(out).toContain("\x1b[1m");
+  });
+
+  test("a span without its own bg sits on the windowBg (conhost fix)", () => {
+    // The usage bar emits fg-only spans that fill the row exactly, so the
+    // right-edge pad never fires; without the fallback the terminal's default
+    // background shows through every such cell (white mosaic on a light
+    // conhost, measured 2026-09-27).
+    const out = renderRow(tline([tspan("x", { fg: "#FF0000" }), tspan("░".repeat(4), { fg: "#111111" })]), 5, BG);
+    expect(out).toBe(
+      `${SGR_RESET}\x1b[38;2;255;0;0m${BG_SGR}x${SGR_RESET}` +
+        `\x1b[38;2;17;17;17m${BG_SGR}░░░░${SGR_RESET}`,
+    );
   });
 });
 
@@ -140,7 +152,7 @@ describe("Screen diff writer", () => {
     screen.writeFrame(frame3(["12345", "12345"]), BG);
     // Top row keeps all 5 cells; the bottom row is clipped to 4 + no filler.
     expect(writes[0]).toContain("12345");
-    expect(writes[0]).toContain(`\x1b[2;1H${SGR_RESET}1234${SGR_RESET}`);
+    expect(writes[0]).toContain(`\x1b[2;1H${SGR_RESET}${BG_SGR}1234${SGR_RESET}`);
   });
 
   test("a shrinking frame clears the leftover rows", () => {
