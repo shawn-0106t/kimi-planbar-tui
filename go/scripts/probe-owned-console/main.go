@@ -14,13 +14,30 @@
 //     injected as key events (the primary quit key) or GenerateConsoleCtrlEvent
 //     (the OS SIGINT channel).
 //
+// -exit ctrlbreak exercises a different scenario (code-review Major 2): the
+// child is launched in THIS console but in its own process group
+// (CREATE_NEW_PROCESS_GROUP), and a group-directed CTRL_BREAK_EVENT is
+// delivered to it — the one signal form ConPTY hosts do not absorb (a
+// broadcast CTRL_C is). PASS here requires BOTH
+//
+//   - EXIT: the exit code is 0xC000013A (STATUS_CONTROL_C_EXIT — the default
+//     termination the handler hands control back to by returning FALSE), and
+//   - RESTORE: the console input mode is cooked again (ENABLE_PROCESSED_INPUT
+//     back on). The child died without running bubbletea's restore, so on a
+//     shared console only the ctrl handler could have cleared raw mode —
+//     this is the automated proof that the signal reached the handler and
+//     the restore sequence ran.
+//
+// SIZE/INPUT are skipped in this mode: a shared console never shrinks (the
+// owned-console guard sees two attached processes).
+//
 // A PowerShell draft of this probe injected no-op events (PowerShell mutates
 // a copy when assigning into a nested struct field), which is why this probe
 // is written in Go with the exact Win32 record layouts.
 //
 // Usage:
 //
-//	go run ./scripts/probe-owned-console [-exe dist/kpt-tui-go.exe] [-wait 8s] [-exit q|ctrlc]
+//	go run ./scripts/probe-owned-console [-exe dist/kpt-tui-go.exe] [-wait 8s] [-exit q|ctrlc|ctrlbreak]
 package main
 
 import (
@@ -182,7 +199,7 @@ func consoleHost() string {
 func main() {
 	exe := flag.String("exe", "dist/kpt-tui-go.exe", "path to the built TUI exe")
 	wait := flag.Duration("wait", 8*time.Second, "seconds to let the TUI boot")
-	exitVia := flag.String("exit", "q", "exit path to exercise: q or ctrlc")
+	exitVia := flag.String("exit", "q", "exit path to exercise: q, ctrlc or ctrlbreak")
 	flag.Parse()
 
 	exePath, err := os.Getwd()
@@ -195,6 +212,11 @@ func main() {
 	}
 	if _, err := os.Stat(exePath); err != nil {
 		fail("exe not found: %s", exePath)
+	}
+
+	if *exitVia == "ctrlbreak" {
+		runCtrlBreakProbe(exePath, *wait)
+		return
 	}
 
 	// GenerateConsoleCtrlEvent would hit this process too (it is attached to
@@ -344,4 +366,79 @@ func verdict(ok bool) string {
 		return "PASS"
 	}
 	return "FAIL"
+}
+
+// runCtrlBreakProbe is the -exit ctrlbreak scenario: the child TUI runs in
+// this console in its own process group, a group-directed CTRL_BREAK_EVENT
+// forces it down, and PASS requires both the default-termination exit code
+// and a restored console input mode — the restore is only reachable through
+// the installed ctrl handler (see the header comment).
+func runCtrlBreakProbe(exePath string, wait time.Duration) {
+	// GenerateConsoleCtrlEvent would hit this process too if it were
+	// broadcast; the group-directed form only reaches the child's group.
+	signal.Ignore(syscall.SIGINT)
+
+	argv := windows.StringToUTF16Ptr(strconv.Quote(exePath))
+	si := &windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{}))}
+	pi := &windows.ProcessInformation{}
+	const (
+		createNewProcessGroup = 0x200
+		ctrlBreakEvent        = 1 // CTRL_BREAK_EVENT (mirrors internal/tui)
+	)
+	if err := windows.CreateProcess(nil, argv, nil, nil, false, createNewProcessGroup, nil, nil, si, pi); err != nil {
+		fail("CreateProcess %s: %v", exePath, err)
+	}
+	defer func() { _ = windows.CloseHandle(pi.Process); _ = windows.CloseHandle(pi.Thread) }()
+
+	time.Sleep(wait)
+	s, err := windows.WaitForSingleObject(pi.Process, 0)
+	if err != nil || s == windows.WAIT_OBJECT_0 {
+		fail("TUI exited during the wait window")
+	}
+
+	hIn, err := windows.CreateFile(
+		windows.StringToUTF16Ptr("CONIN$"),
+		windows.GENERIC_READ|windows.GENERIC_WRITE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE,
+		nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		fail("open CONIN$: %v", err)
+	}
+
+	// The TUI must currently hold this console in raw mode (bubbletea cleared
+	// ENABLE_PROCESSED_INPUT) — otherwise the RESTORE verdict below is
+	// meaningless because there was nothing to restore.
+	var modeBefore uint32
+	_ = windows.GetConsoleMode(hIn, &modeBefore)
+	fmt.Printf("modeBefore=0x%X (raw=%v)\n", modeBefore, modeBefore&0x1 == 0)
+	if modeBefore&0x1 != 0 {
+		fail("TUI is not holding the console in raw mode after %v (wait too short or not a TUI run)", wait)
+	}
+
+	r, _, _ := procGenerateCtrlEvent.Call(ctrlBreakEvent, uintptr(pi.ProcessId))
+	fmt.Printf("ctrlbreak signal (sent=%v, group=%d)\n", r != 0, pi.ProcessId)
+	if r == 0 {
+		fail("GenerateConsoleCtrlEvent(CTRL_BREAK, %d) failed", pi.ProcessId)
+	}
+
+	s, err = windows.WaitForSingleObject(pi.Process, 15000)
+	if err != nil || s != windows.WAIT_OBJECT_0 {
+		_ = windows.TerminateProcess(pi.Process, 1)
+		fail("TUI did not exit within 15 s (wait=%v state=%d)", err, s)
+	}
+	var code uint32
+	if err := windows.GetExitCodeProcess(pi.Process, &code); err != nil {
+		fail("GetExitCodeProcess: %v", err)
+	}
+	const statusControlCExit = 0xC000013A
+	fmt.Printf("exitcode=0x%08X\n", code)
+
+	fmt.Printf("EXIT=%s (CTRL_BREAK default termination, want 0xC000013A)\n", verdict(code == statusControlCExit))
+
+	// Only the ctrl handler could have restored this console: the child died
+	// mid-raw-mode without running bubbletea's restore.
+	var modeAfter uint32
+	_ = windows.GetConsoleMode(hIn, &modeAfter)
+	fmt.Printf("modeAfter=0x%X\n", modeAfter)
+	fmt.Printf("RESTORE=%s (ENABLE_PROCESSED_INPUT back on — the handler ran)\n", verdict(modeAfter&0x1 != 0))
 }

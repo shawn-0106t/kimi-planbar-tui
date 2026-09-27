@@ -44,13 +44,15 @@ func handlesCtrlEvent(ctrl uintptr) bool {
 	return false
 }
 
-// installConsoleCtrlHandler registers the forced-exit restore handler.
-// Best-effort: when the entry point cannot be resolved (never on a supported
-// Windows) the install is silently skipped — every failure here only trades
-// a stranded-terminal risk for a plain exit, never a crash (SPEC 20).
-func installConsoleCtrlHandler(restore *terminalRestore) {
+// installConsoleCtrlHandler registers the forced-exit restore handler and
+// reports whether the registration succeeded (BOOL from SetConsoleCtrlHandler).
+// Best-effort, like the Rust oracle's `let _ = SetConsoleCtrlHandler(...)`: a
+// failed install only trades a stranded-terminal risk for a plain exit, never
+// a crash (SPEC 20) — the boolean exists so the install contract is testable
+// instead of silently absorbed.
+func installConsoleCtrlHandler(restore *terminalRestore) bool {
 	if err := procSetConsoleCtrlHandler.Find(); err != nil {
-		return
+		return false
 	}
 	handler := windows.NewCallback(func(ctrl uintptr) uintptr {
 		if handlesCtrlEvent(ctrl) {
@@ -58,5 +60,6 @@ func installConsoleCtrlHandler(restore *terminalRestore) {
 		}
 		return 0 // FALSE: let the default termination proceed
 	})
-	_, _, _ = procSetConsoleCtrlHandler.Call(handler, 1) // TRUE = add
+	r, _, _ := procSetConsoleCtrlHandler.Call(handler, 1) // TRUE = add
+	return r != 0
 }

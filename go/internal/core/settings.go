@@ -7,6 +7,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -128,7 +129,12 @@ func SaveSettings(data SettingsData, dir string) bool {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false
 	}
-	tmp := filepath.Join(dir, "settings.json.tmp")
+	// PID-suffixed like the Rust oracle and both TS editions: there is no
+	// single-instance mutex (SPEC 20), and a fixed name would make two
+	// concurrent SaveSettings calls race — one rename failing on the other's
+	// open handle (sharing violation -> false "Save failed") or, worse, one
+	// instance renaming the other's draft into place.
+	tmp := filepath.Join(dir, fmt.Sprintf("settings.json.%d.tmp", os.Getpid()))
 	if err := os.WriteFile(tmp, []byte(SettingsToJSONText(data)), 0o644); err != nil {
 		// REVIEW-RUST Suggestion 13: the failed write may leave a half-made
 		// tmp behind — clean it up with the same best-effort remove as the

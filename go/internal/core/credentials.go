@@ -206,6 +206,13 @@ func ApplyAutoStart(autoStart bool, exe string) {
 	}
 	defer key.Close()
 	if autoStart {
+		// Rust oracle guards the write on current_exe() succeeding
+		// (settings.rs: `if let Ok(exe)`): an empty exe must never become an
+		// empty Run value — and a bad value written here would survive the
+		// startup reconcile, which deliberately skips in-sync pairs.
+		if exe == "" {
+			return
+		}
 		_ = key.SetStringValue(runValueName, autoStartValue(exe))
 	} else {
 		_ = key.DeleteValue(runValueName)

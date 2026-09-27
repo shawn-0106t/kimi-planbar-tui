@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -170,9 +171,10 @@ func TestSaveSettingsIsAtomicAndCleansUp(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "settings.json")); err != nil {
 		t.Fatalf("target file missing after save: %v", err)
 	}
-	// The temp file must not survive the rename (SPEC 18.2).
-	if _, err := os.Stat(filepath.Join(dir, "settings.json.tmp")); !os.IsNotExist(err) {
-		t.Errorf("settings.json.tmp survived the save")
+	// The temp file (PID-suffixed, SPEC 18.2) must not survive the rename.
+	tmpName := fmt.Sprintf("settings.json.%d.tmp", os.Getpid())
+	if _, err := os.Stat(filepath.Join(dir, tmpName)); !os.IsNotExist(err) {
+		t.Errorf("%s survived the save", tmpName)
 	}
 }
 
@@ -192,9 +194,9 @@ func TestSaveSettingsTmpWriteFailureCleansUpTmp(t *testing.T) {
 	// REVIEW-RUST Suggestion 13: when writing the temp file fails, the
 	// half-made tmp must be cleaned up with the same best-effort remove as
 	// the rename-failure path (SPEC 18.2). An empty directory occupying the
-	// tmp path makes WriteFile fail deterministically.
+	// PID-suffixed tmp path makes WriteFile fail deterministically.
 	dir := t.TempDir()
-	tmp := filepath.Join(dir, "settings.json.tmp")
+	tmp := filepath.Join(dir, fmt.Sprintf("settings.json.%d.tmp", os.Getpid()))
 	if err := os.Mkdir(tmp, 0o755); err != nil {
 		t.Fatal(err)
 	}

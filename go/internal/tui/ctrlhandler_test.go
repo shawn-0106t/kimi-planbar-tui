@@ -76,5 +76,9 @@ func TestInstallConsoleCtrlHandlerSmoke(t *testing.T) {
 	if err := procSetConsoleCtrlHandler.Find(); err != nil {
 		t.Fatalf("SetConsoleCtrlHandler must resolve: %v", err)
 	}
-	installConsoleCtrlHandler(&terminalRestore{body: func() {}})
+	// The registration BOOL must be true: a swallowed failure here would pin
+	// an install that silently never happened (code-review Major 2).
+	if !installConsoleCtrlHandler(&terminalRestore{body: func() {}}) {
+		t.Fatal("installConsoleCtrlHandler must report a successful registration")
+	}
 }

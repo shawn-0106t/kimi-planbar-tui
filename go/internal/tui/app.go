@@ -477,7 +477,7 @@ func Run() error {
 	// (REVIEW-RUST Minor 15), and even a resize or init-time failure must
 	// not strand the terminal.
 	restore := newTerminalRestore()
-	installConsoleCtrlHandler(restore)
+	_ = installConsoleCtrlHandler(restore) // best-effort, like the Rust oracle's `let _ =`
 	defer restore.run()
 
 	// SPEC 20: shrink the window to the wireframe minimum only when the
