@@ -32,6 +32,20 @@ export interface Terminal {
 export const TERMINAL_ENTER = "\x1b[?1049h\x1b[?25l\x1b[?7l";
 export const TERMINAL_LEAVE = "\x1b[?7h\x1b[?25h\x1b[?1049l";
 
+/** libuv caches the console size when the handle is initialized and refreshes
+ *  it only from a WINDOW_BUFFER_SIZE_EVENT reaching a READ loop — the
+ *  write-only stdout never runs one, so a host-side CSI 8 shrink never lands
+ *  in `stdout.columns/rows` (measured 2026-09-27: stuck at 120x30 inside a
+ *  72x13 window, which pinned the footer below the visible viewport; the
+ *  user only "fixed" it by resizing the window past 30 rows). `_refreshSize`
+ *  is the private but decade-stable tty hook that forces uv_tty_get_winsize;
+ *  guarded so a future Node without it silently falls back to the cached
+ *  values. On a real size change it also emits stdout 'resize', which the
+ *  app's onResize wiring already handles. */
+export function refreshStdoutSize(stdout: NodeJS.WriteStream = process.stdout): void {
+  (stdout as unknown as { _refreshSize?: () => void })._refreshSize?.();
+}
+
 export function createTerminal(
   stdout: NodeJS.WriteStream = process.stdout,
   stdin: NodeJS.ReadStream = process.stdin,

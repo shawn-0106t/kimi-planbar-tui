@@ -45,7 +45,7 @@ import {
   type SkillsRow,
 } from "./skillsView.ts";
 import { Screen } from "./screen.ts";
-import { createTerminal, type KeyPress, type Terminal } from "./terminal.ts";
+import { createTerminal, refreshStdoutSize, type KeyPress, type Terminal } from "./terminal.ts";
 
 /** SPEC 12.7: Console button URL. */
 export const CONSOLE_URL = "https://www.kimi.com/code/console?from=kfc_overview_topbar";
@@ -88,10 +88,22 @@ export function shrinkFreshWindow(
 
 type View = "dashboard" | "settings" | "skills";
 
+/** The host applies the CSI 8 window-op asynchronously (it processes the
+ *  escape after we return), so the viewport read right after the write is
+ *  still the pre-shrink one. Measured 2026-09-27: without this settle the
+ *  Screen captured the old height and painted the footer below the visible
+ *  viewport (it reappeared only after the user resized the window). draw()
+ *  re-aligns the size every frame anyway - this just makes the FIRST frame
+ *  correct, like the Rust edition's synchronous Win32 shrink. */
+const SHRINK_SETTLE_MS = 150;
+const settleAfterShrink = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, SHRINK_SETTLE_MS));
+
 /** SPEC 20 startup order: window shrink -> load settings -> apply theme ->
  *  init terminal -> event loop -> 2 s first refresh -> update check. */
 export async function runTui(): Promise<void> {
   shrinkFreshWindow();
+  await settleAfterShrink();
   const settings = loadSettings();
   // Registry reconciliation (REVIEW-RUST Minor 2, SPEC 18.3): settings.json is
   // the source of truth; heal a stale HKCU Run value left behind by a legacy
@@ -151,6 +163,15 @@ export async function runTui(): Promise<void> {
 
   const draw = (): void => {
     if (destroyed) return;
+    // Real-time size alignment, every frame: the CSI 8 shrink takes effect
+    // asynchronously AND libuv never refreshes the write-only stdout's cached
+    // size on its own, so without refreshStdoutSize() the dimensions captured
+    // at startup would pin the footer below the visible viewport forever
+    // (measured 2026-09-27). Ratatui sizes every frame from the live
+    // terminal; this is the same contract. setSize is a no-op while the
+    // numbers match and forces a full repaint when they change.
+    refreshStdoutSize();
+    screen.setSize(terminal.width, terminal.height);
     const p = palette(state.effectiveTheme);
     const width = terminal.width;
     const height = terminal.height;
