@@ -20,18 +20,23 @@
 // delivered to it — the one signal form ConPTY hosts do not absorb (a
 // broadcast CTRL_C is). PASS here requires
 //
-//   - RESTORE: the console input mode is cooked again (ENABLE_PROCESSED_INPUT
-//     back on). The child died without running bubbletea's restore, so on a
-//     shared console only the ctrl handler could have cleared raw mode —
-//     this is the automated proof that the signal reached the handler and
-//     the restore sequence ran; and
 //   - EXIT: the process is down with a code the ctrl path can produce.
-//     Measured 2026-09-27: code 0 — our handler returns FALSE, and the Go
-//     runtime's own ctrl handler then converts CTRL_BREAK into SIGBREAK,
-//     which bubbletea handles for a graceful exit (its own restore output
-//     follows ours). That is a deliberate semantic divergence from the Rust
-//     oracle, whose handler returning FALSE hands straight to default
-//     termination (0xC000013A); both codes are accepted here.
+//     Measured 2026-09-27: code 0 — after our handler returns FALSE, the Go
+//     runtime's own ctrl handler maps CTRL_BREAK onto SIGINT (go1.27
+//     runtime/os_windows.go maps CTRL_C and CTRL_BREAK alike), which
+//     bubbletea listens for and answers with a graceful exit — its restore
+//     output follows ours in the log. The Rust oracle instead falls straight
+//     to default termination (0xC000013A); both codes are accepted here,
+//     since the runtime's signal mapping may shift with Go versions.
+//   - RESTORE: the console input mode is cooked again (ENABLE_PROCESSED_INPUT
+//     back on). Honest caveat (re-review): on the graceful path bubbletea's
+//     own restore also clears raw mode, so this probe cannot distinguish a
+//     build with the ctrl handler from one without — what it proves is that
+//     the CTRL_BREAK signal form is deliverable to the Go TUI (unlike the
+//     absorbed broadcast CTRL_C) and the terminal ends up restored, not that
+//     the handler ran. The handler's registration (BOOL true), event-kind
+//     routing and restore-once guard are pinned by unit tests; a real
+//     Ctrl+Break keypress stays a manual-acceptance item.
 //
 // SIZE/INPUT are skipped in this mode: a shared console never shrinks (the
 // owned-console guard sees two attached processes). The child's stdout lands
@@ -53,7 +58,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -236,7 +240,7 @@ func main() {
 	// input/output buffers — exactly the double-click semantics. (exec.Cmd
 	// would wire them to NUL, the TUI's stdout-console guard would correctly
 	// refuse to shrink, and the probe would test the wrong scenario.)
-	argv := windows.StringToUTF16Ptr(strconv.Quote(exePath))
+	argv := windows.StringToUTF16Ptr(`"` + exePath + `"`)
 	si := &windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{}))}
 	pi := &windows.ProcessInformation{}
 	if err := windows.CreateProcess(nil, argv, nil, nil, false, windows.CREATE_NEW_CONSOLE, nil, nil, si, pi); err != nil {
@@ -378,15 +382,17 @@ func verdict(ok bool) string {
 
 // runCtrlBreakProbe is the -exit ctrlbreak scenario: the child TUI runs in
 // this console in its own process group, a group-directed CTRL_BREAK_EVENT
-// forces it down, and PASS requires both the default-termination exit code
-// and a restored console input mode — the restore is only reachable through
-// the installed ctrl handler (see the header comment).
+// forces it down, and PASS requires the process to be down with a ctrl-path
+// exit code and the console input mode restored. Caveat: on the graceful
+// path (Go runtime maps CTRL_BREAK to SIGINT, bubbletea exits cleanly) the
+// restore is bubbletea's own, so this does not prove the ctrl handler ran —
+// see the header comment for what is and is not covered.
 func runCtrlBreakProbe(exePath string, wait time.Duration) {
 	// GenerateConsoleCtrlEvent would hit this process too if it were
 	// broadcast; the group-directed form only reaches the child's group.
 	signal.Ignore(syscall.SIGINT)
 
-	argv := windows.StringToUTF16Ptr(strconv.Quote(exePath))
+	argv := windows.StringToUTF16Ptr(`"` + exePath + `"`)
 	si := &windows.StartupInfo{Cb: uint32(unsafe.Sizeof(windows.StartupInfo{}))}
 	pi := &windows.ProcessInformation{}
 	const (
@@ -443,16 +449,20 @@ func runCtrlBreakProbe(exePath string, wait time.Duration) {
 
 	// Both codes mean "the signal forced the process down": 0xC000013A is the
 	// Windows default termination (the Rust oracle's path), 0 is the Go
-	// runtime's graceful SIGBREAK hand-off to bubbletea (measured 2026-09-27).
-	// RESTORE below is the handler-reached verdict; the code only proves the
-	// termination happened.
+	// runtime's graceful hand-off — the runtime maps CTRL_BREAK onto SIGINT
+	// (go1.27), which bubbletea answers with its own graceful exit (measured
+	// 2026-09-27). The mapping may shift with Go versions, hence both codes
+	// pass. What this probe proves is signal deliverability plus a restored
+	// console, NOT that the handler ran — on the graceful path bubbletea's
+	// restore clears raw mode equally (see the header caveat).
 	fmt.Printf("EXIT=%s (CTRL_BREAK delivered; code 0 = graceful via the Go runtime, 0xC000013A = default termination)\n",
 		verdict(code == 0 || code == statusControlCExit))
 
-	// Only the ctrl handler could have restored this console: the child died
-	// mid-raw-mode without running bubbletea's restore.
+	// The console ends up cooked either way — but on the graceful path that is
+	// bubbletea's own restore, indistinguishable from the handler's. The
+	// handler's registration/routing/once-guard are pinned by unit tests.
 	var modeAfter uint32
 	_ = windows.GetConsoleMode(hIn, &modeAfter)
 	fmt.Printf("modeAfter=0x%X\n", modeAfter)
-	fmt.Printf("RESTORE=%s (ENABLE_PROCESSED_INPUT back on — the handler ran)\n", verdict(modeAfter&0x1 != 0))
+	fmt.Printf("RESTORE=%s (ENABLE_PROCESSED_INPUT back on — console restored)\n", verdict(modeAfter&0x1 != 0))
 }
