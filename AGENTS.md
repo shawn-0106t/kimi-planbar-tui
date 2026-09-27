@@ -6,7 +6,7 @@ Guidance for AI coding agents working in this repository. Read this first; it as
 
 Kimi Planbar TUI is a **terminal-resident dashboard** (no tray, no windows, no animations) that shows Kimi Code plan quota — 5-hour window + weekly usage with reset countdowns, Extra Usage booster wallet, Kimi Code CLI version check, and a read-only skills list — inside a terminal. It reads the local Kimi Code CLI OAuth token (read-only) and calls `GET https://api.kimi.com/coding/v1/usages`.
 
-This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition (maintained, recommended); `ts-nodejs/` holds the Node edition and `ts/` holds the Bun + OpenTUI edition — both supported alternatives with the same UI and behavior (`ts/` was frozen as experimental from 2026-09-19 to 2026-09-25 and was unfrozen to land the owned-console startup crash fix; see `HANDOFF.md`) — and `go/` holds the Go edition (bubbletea v2 / lipgloss, fourth implementation; M0–M4 complete, doc sync pending — see `docs/PLAN-GO.md`). Where a TS edition is not mechanically equivalent to Rust, the register is **SPEC chapter 22** (`docs/SPEC.md` / `docs/SPEC_EN.md`), filed by SPEC chapter number.
+This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition (maintained, recommended); `ts-nodejs/` holds the Node edition and `ts/` holds the Bun + OpenTUI edition — both supported alternatives with the same UI and behavior (`ts/` was frozen as experimental from 2026-09-19 to 2026-09-25 and was unfrozen to land the owned-console startup crash fix; see `HANDOFF.md`) — and `go/` holds the Go edition (bubbletea v2 / lipgloss, fourth implementation; M0–M4 complete, the Rust-fix alignment port is in and independently reviewed, doc sync done 2026-09-27 via SPEC 22.7 — release engineering pending — see `docs/PLAN-GO.md`). Where a TS edition is not mechanically equivalent to Rust, the register is **SPEC chapter 22** (`docs/SPEC.md` / `docs/SPEC_EN.md`), filed by SPEC chapter number.
 
 Current version: **0.1.1** in `rust/Cargo.toml` and `ts-nodejs/package.json`, **0.1.2** in `ts/package.json` (each edition bumps independently; versioning is **independent** of the sibling tray app `kimi-planbar-tray`).
 
@@ -71,10 +71,12 @@ Data contract shared with the tray edition: same credential chain, same `setting
 │   ├── SPEC_EN.md              # English translation, identical chapter numbering
 │   ├── REVIEW-M1.md            # M1 core-layer audit ledger (archived 2026-09-20): 5 Major + 7 Minor, all
 │   │                           # closed; a measured status table (file:line per item, incl. what is deliberately untested)
-│   └── REVIEW-RUST.md          # Rust audit ledger (archived 2026-09-26): 2026-09-25 full audit plus four
+│   ├── REVIEW-RUST.md          # Rust audit ledger (archived 2026-09-26): 2026-09-25 full audit plus four
 │                               # 2026-09-26 independent reviews — 2 Major (fmt_yuan i64::MIN recursion →
 │                               # terminal stranding; settings view clipped at 72x13) + 9 Minor + 13 Suggestion;
 │                               # ALL closed (24 fixed in four batches, Suggestion 10/17 registered-not-fixed)
+│   └── HANDOFF-ALIGN-2026-09-26.md  # alignment-port handoff: the 2026-09-26/27 review round, finding
+│                               # disposition, and the §5 manual-acceptance list (CTRL_CLOSE etc.)
 ├── HANDOFF.md                  # 2026-09-25 incident record: Bun edition "unusable" root cause
 │                               # (shrink.ts FFI pointer bug → segfault on owned-console launch), evidence chain, fixes
 ├── AGENTS.md / README.md / README_CN.md

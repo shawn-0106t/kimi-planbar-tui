@@ -183,6 +183,8 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 
 > **2026-09-26 增补（Rust 修复入库 + 本地打包；取代本节"暂不发 0.1.3"的判断）**：REVIEW-RUST 台账已全部闭环（四轮独立审查 Approve：24 项修复 + 2 项登记不修；28 测试全绿），修复以 **`1779e33`** 入库 main。本地已打包 **`dist/kimi-planbar-tui-0.1.1-g1779e33.exe`**（未发布；版本号未 bump，文件名以 g+短哈希区分有 bug 的旧 v0.1.1；`--test-update` 冒烟全绿）。**联合发版**（待 ts/go 就绪一起发）时：tag `v0.1.2` 已被 TS 版占用，Rust 版本号建议 Cargo.toml 直接 bump 到 **0.1.3** 并打 `v0.1.3`，或改用 `rust-v*` 前缀 tag——二选一待维护者拍板。另：Rust 第三批起的对齐缺口（Major B / Minor 11 / Suggestion 13/16 等 4 项）已登记进 `docs/PLAN-GO.md` 的对齐小节，TS 两版对应移植同批执行（见 PLAN-GO 对齐小节）。
 
+> **2026-09-27 增补（对齐移植评审收尾；联合发版的 ts/go 前置条件已满足）**：Rust 修正对齐移植（第一批 6 项 + 第二批 4 项 + Go `SetConsoleCtrlHandler`）已在三树落地并经三个独立 code-reviewer 并行评审闭环——go `1ba11fb` + 修复 `1c97a97`（Request Changes 的 2 Major 修复：tmp 补 PID 后缀、ctrl handler 安装可测 + 探针 `-exit ctrlbreak` 自动化实证信号触达）、ts `2715a6c` + `daae588`（Approve + 2 项跟进）、ts-nodejs `e27056f` + `579e075`（Approve + 1 Minor 修复；移植项 ④「缩窗先开 VT」N/A 经评审独立评估成立、维护者确认）。三树门禁全绿、parity 均逐字节一致。契约与登记：SPEC 22.7 新增（Go 版差异 + 对齐批次）、22.3/22.6 修订（reconcile 探针、Node N/A 论据）、PLAN-GO 对齐小节回填。**联合发版现在只剩维护者拍板版本号取向（0.1.3 vs `rust-v*`）+ 各树版本 bump + 打包上传**；遗留人工验收项清单见 `docs/HANDOFF-ALIGN-2026-09-26.md` §5（CTRL_CLOSE 关窗恢复、旧 conhost 目检、72×13 双主题目检、Node 保存失败端到端）。
+
 ## 13. Rust 版全量审查（2026-09-25）
 
 对推荐版 `rust/`（oracle 基准）做了首次全量独立审查，台账见 **`docs/REVIEW-RUST.md`**。结论：**无 Blocker；1 Major / 5 Minor / 3 Suggestion**，`cargo test` 15/15、`--test-fetch`/`--test-update` 实测正常，总体称职、修复 Major 后可继续信任其 oracle 地位。
