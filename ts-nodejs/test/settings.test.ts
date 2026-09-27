@@ -8,6 +8,7 @@ import {
   loadSettings,
   parseSettingsJson,
   reconcileNeedsApply,
+  runValueExists,
   runValueQueryCommand,
   saveSettings,
   settingsToJsonText,
@@ -214,6 +215,21 @@ describe("startup reconcile decision (SPEC 18.3, REVIEW-RUST Minor 2)", () => {
     expect(reconcileNeedsApply(false, true)).toBe(true); // stale value -> delete it
     expect(reconcileNeedsApply(true, true)).toBe(false); // in sync: leave alone
     expect(reconcileNeedsApply(false, false)).toBe(false); // in sync: leave alone
+  });
+
+  // Node trap the re-review caught: child_process.spawnSync does NOT throw on
+  // a missing executable (Bun.spawnSync does) — it returns status: null with
+  // the failure in .error. A try/catch-based null would be dead code and the
+  // reconcile would misread reg.exe's absence as "value absent" and apply
+  // (re-pointing an existing value, creating the whole Run key).
+  test("a failed probe (ENOENT) is null, a missing value is false", () => {
+    const enoent = {
+      status: null,
+      error: Object.assign(new Error("spawn reg.exe ENOENT"), { code: "ENOENT" }),
+    };
+    expect(runValueExists(() => enoent)).toBe(null);
+    expect(runValueExists(() => ({ status: 0 }))).toBe(true); // value present
+    expect(runValueExists(() => ({ status: 1 }))).toBe(false); // value absent
   });
 });
 

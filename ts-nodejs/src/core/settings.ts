@@ -182,24 +182,34 @@ export function runValueQueryCommand(): string[] {
   return ["reg.exe", "query", RUN_KEY, "/v", RUN_VALUE];
 }
 
+/** Narrow spawnSync shape for the test seam: the probe's decision only reads
+ *  `status` and `error` (the full SpawnSyncReturns and the overloaded
+ *  signatures are irrelevant here and would make a fake unconstructible). */
+type ProbeSpawn = (
+  cmd: string,
+  args: string[],
+  opts: { stdio: ["ignore", "ignore", "ignore"]; windowsHide: boolean },
+) => { status: number | null; error?: Error };
+
 /** True when the HKCU Run value exists, judged by VALUE NAME (REVIEW-RUST
  *  Minor 2): `reg.exe query ... /v <name>` fails whenever the name is absent,
  *  whatever its type — a manually written REG_DWORD still counts as existing,
  *  so the reconcile delete below is not skipped. Null when the probe itself
  *  failed (reg.exe missing): a failed probe must leave the registry alone
  *  (same contract as the ts/ edition and the Rust oracle, whose reconcile
- *  returns early when the key cannot be opened). */
-export function runValueExists(): boolean | null {
-  try {
-    const cmd = runValueQueryCommand();
-    const probe = spawnSync(cmd[0]!, cmd.slice(1), {
-      stdio: ["ignore", "ignore", "ignore"],
-      windowsHide: true,
-    });
-    return probe.status === 0;
-  } catch {
-    return null; // reg.exe missing: probe failed, not "value absent"
-  }
+ *  returns early when the key cannot be opened). Note the Node trap the
+ *  review round caught: `spawnSync` does NOT throw on ENOENT — it returns
+ *  `status: null` with the failure in `.error` — so the failure check is on
+ *  `probe.error`, not a try/catch (Bun.spawnSync is the one that throws).
+ *  `spawnFn` is a test seam; production never passes it. */
+export function runValueExists(spawnFn: ProbeSpawn = spawnSync): boolean | null {
+  const cmd = runValueQueryCommand();
+  const probe = spawnFn(cmd[0]!, cmd.slice(1), {
+    stdio: ["ignore", "ignore", "ignore"],
+    windowsHide: true,
+  });
+  if (probe.error) return null; // reg.exe missing (ENOENT): probe failed, not "value absent"
+  return probe.status === 0;
 }
 
 /** The reconcile decision (REVIEW-RUST Minor 2), pure for tests: heal both
