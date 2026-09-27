@@ -59,7 +59,6 @@ Monorepo layout (mirroring the tray edition's kimi-planbar-tray): the Rust crate
 - `ts/package.json` / `ts/tsconfig.json` — package name `kimi-planbar-tui-ts`, independent version starting at 0.1.0
 - `ts/src/core/` — the ten core modules behaving 1:1 with the Rust core (credentials, quota, polling, settings, skills, update, format, theme, state, strict JSON); importing any `@opentui` symbol there is forbidden
 - `ts/src/tui/` — the OpenTUI render layer (line / dashboard / settingsView / skillsView / renderer / app / console / shrink), strictly separated from core so it can be replaced wholesale
-- `ts/README.md` — notice for this directory (unfrozen 2026-09-25, maintained again)
 - `ts-nodejs/package.json` — package name `kimi-planbar-tui-ts-nodejs`, independent version starting at 0.1.0
 - `ts-nodejs/src/core/` — the same ten modules ported from `ts/src/core/` (only three `Bun.*` call sites replaced with `node:child_process`; everything else byte-identical)
 - `ts-nodejs/src/tui/` — the handwritten-ANSI render layer (ansi / wcwidth / screen / terminal) plus the views (dashboard / settingsView / skillsView / app); no TUI library at all

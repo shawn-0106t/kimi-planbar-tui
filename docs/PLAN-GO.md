@@ -231,10 +231,10 @@ Go 的 `encoding/json` ≠ serde_json。自检输出须与 Rust exe 逐字节一
   - §9 维护边界：受支持实现加入 Go 版
   - **新增 §22.7 Go 版差异登记**，内容即本文件 §4 标注的登记点（registry 直读无 GBK / `os.Executable` 无歧义 / 系统根证书无 `--use-system-ca` / int64 无 clamp、无 24.8 天上限 / 主题轮询进程内同步 / 心跳无 unref 概念 / 非 2xx 排空 body / 其他实测新发现）
 - `AGENTS.md`：仓库布局、构建运行命令、测试/自检命令、Go 版陷阱条目、发布流程
-- `README.md` / `README_CN.md`：Go 版构建与运行说明、按键表（含 IME 提示）、产物体积说明
+- `README.md` / `README_CN.md`：Go 版构建与运行说明、按键表（含 IME 提示）、产物体积说明（2026-09-27 已落地，且成为唯一 README——见上条）
 - 根 `.gitignore`：`go/dist/`、`go/*.syso`（M0 已做则复核）
 - `HANDOFF.md` §11：回链本计划与落地状态
-- `go/README.md`：目录说明（对齐 `ts/README.md` 的定位）
+- ~~`go/README.md`：目录说明~~ → 2026-09-27 维护者拍板：**不设各栈子目录 README，用户文档统一在根 `README.md` / `README_CN.md`**（`ts/README.md` 已删除，`go/README.md` 未创建）
 
 ---
 

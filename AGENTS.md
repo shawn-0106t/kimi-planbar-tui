@@ -45,7 +45,6 @@ Data contract shared with the tray edition: same credential chain, same `setting
 │       └── verify/             # send-ctrl-break.ps1 — manual-acceptance probe (broadcasts CTRL_BREAK_EVENT to the console)
 ├── ts/                         # TS edition (Bun): unfrozen 2026-09-25 (was experimental/frozen), independent version
 │   ├── package.json            # scripts: dev / test / parity / selfcheck:* / build:exe; name kimi-planbar-tui-ts
-│   ├── README.md               # directory notice (unfrozen 2026-09-25, maintained again)
 │   ├── src/core/               # 10 UI-agnostic modules mirroring rust/src/*.rs (no @opentui imports allowed)
 │   ├── src/tui/                # OpenTUI render layer: line, dashboard, settingsView, skillsView, renderer, app, console, shrink
 │   ├── src/main.ts             # entry; --test-fetch / --test-update before anything else

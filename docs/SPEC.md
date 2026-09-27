@@ -59,7 +59,6 @@ Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `
 - `ts/package.json` / `ts/tsconfig.json` — 包名 `kimi-planbar-tui-ts`，版本独立从 0.1.0 起步
 - `ts/src/core/` — 与 Rust core 行为 1:1 的十个模块（凭证链、quota、polling、settings、skills、update、format、theme、state、严格 JSON）；禁止 import 任何 `@opentui` 符号
 - `ts/src/tui/` — OpenTUI 渲染层（line / dashboard / settingsView / skillsView / renderer / app / console / shrink），与 core 严格分层，可整体替换
-- `ts/README.md` — 本目录说明（2026-09-25 解冻，恢复维护）
 - `ts-nodejs/package.json` — 包名 `kimi-planbar-tui-ts-nodejs`，版本独立从 0.1.0 起步
 - `ts-nodejs/src/core/` — 自 `ts/src/core/` 平移的同一套十个模块（仅把 3 处 `Bun.*` 调用换成 `node:child_process`，其余逐字节一致）
 - `ts-nodejs/src/tui/` — 手写 ANSI 渲染层（ansi / wcwidth / screen / terminal）+ 视图（dashboard / settingsView / skillsView / app），无任何 TUI 库
