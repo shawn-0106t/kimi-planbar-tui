@@ -228,6 +228,7 @@ describe("startup reconcile decision (SPEC 18.3, REVIEW-RUST Minor 2)", () => {
       error: Object.assign(new Error("spawn reg.exe ENOENT"), { code: "ENOENT" }),
     };
     expect(runValueExists(() => enoent)).toBe(null);
+    expect(runValueExists(() => ({ status: null }))).toBe(null); // killed process: no error, no result
     expect(runValueExists(() => ({ status: 0 }))).toBe(true); // value present
     expect(runValueExists(() => ({ status: 1 }))).toBe(false); // value absent
   });

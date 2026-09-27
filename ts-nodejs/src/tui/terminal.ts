@@ -43,7 +43,12 @@ export const TERMINAL_LEAVE = "\x1b[?7h\x1b[?25h\x1b[?1049l";
  *  values. On a real size change it also emits stdout 'resize', which the
  *  app's onResize wiring already handles. */
 export function refreshStdoutSize(stdout: NodeJS.WriteStream = process.stdout): void {
-  (stdout as unknown as { _refreshSize?: () => void })._refreshSize?.();
+  try {
+    (stdout as unknown as { _refreshSize?: () => void })._refreshSize?.();
+  } catch {
+    // a dead handle makes the hook throw (an 'error' emit with no listener);
+    // keep the cached size and let the next frame retry silently
+  }
 }
 
 export function createTerminal(

@@ -65,24 +65,32 @@ const MIN_WIN_ROWS = 13;
  *  native binding there is no GetConsoleProcessList, so "did we launch into
  *  our own fresh window?" is answered environmentally — every terminal that
  *  hosts an existing session sets one of these variables; a double-clicked /
- *  fresh console window has none of them. Never resize a shared console.
- *  env/out are injectable so the heuristic is unit-testable. */
+ *  fresh console window has none of them. PROMPT additionally catches an
+ *  interactive cmd session: cmd.exe sets it, a fresh console does not — and
+ *  now that the host honors CSI 8 (2026-09-27), the old silent false-positive
+ *  would really shrink a cmd the user is sitting in (SPEC 20: never resize a
+ *  shared console). Returns whether the escape was written, so the caller
+ *  only settles when a resize is actually in flight. env/out are injectable
+ *  so the heuristic is unit-testable. */
 export function shrinkFreshWindow(
   env: NodeJS.ProcessEnv = process.env,
   out: { isTTY?: boolean; write(text: string): unknown } = process.stdout,
-): void {
+): boolean {
   try {
-    if (!out.isTTY) return;
+    if (!out.isTTY) return false;
     if (
       env["WT_SESSION"] !== undefined ||
       env["TERM_PROGRAM"] !== undefined ||
-      env["ConEmuPID"] !== undefined
+      env["ConEmuPID"] !== undefined ||
+      env["PROMPT"] !== undefined
     ) {
-      return;
+      return false;
     }
     out.write(`\x1b[8;${MIN_WIN_ROWS};${MIN_WIN_COLS}t`);
+    return true;
   } catch {
     // a terminal that rejects CSI 8;h;w keeps its size — that is fine
+    return false;
   }
 }
 
@@ -102,8 +110,7 @@ const settleAfterShrink = (): Promise<void> =>
 /** SPEC 20 startup order: window shrink -> load settings -> apply theme ->
  *  init terminal -> event loop -> 2 s first refresh -> update check. */
 export async function runTui(): Promise<void> {
-  shrinkFreshWindow();
-  await settleAfterShrink();
+  if (shrinkFreshWindow()) await settleAfterShrink();
   const settings = loadSettings();
   // Registry reconciliation (REVIEW-RUST Minor 2, SPEC 18.3): settings.json is
   // the source of truth; heal a stale HKCU Run value left behind by a legacy

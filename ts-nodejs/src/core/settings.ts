@@ -208,7 +208,7 @@ export function runValueExists(spawnFn: ProbeSpawn = spawnSync): boolean | null 
     stdio: ["ignore", "ignore", "ignore"],
     windowsHide: true,
   });
-  if (probe.error) return null; // reg.exe missing (ENOENT): probe failed, not "value absent"
+  if (probe.error || probe.status === null) return null; // spawn failure or killed process: probe failed, not "value absent"
   return probe.status === 0;
 }
 

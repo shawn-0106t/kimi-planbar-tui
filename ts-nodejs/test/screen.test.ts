@@ -155,6 +155,17 @@ describe("Screen diff writer", () => {
     expect(writes[0]).toContain(`\x1b[2;1H${SGR_RESET}${BG_SGR}1234${SGR_RESET}`);
   });
 
+  test("setSize with unchanged dimensions keeps the incremental diff", () => {
+    // The per-frame setSize in app.ts must be a true no-op while the numbers
+    // match — otherwise every heartbeat would full-clear and repaint.
+    const { writes, write } = sink();
+    const screen = new Screen(10, 2, write);
+    screen.writeFrame(frame3(["a", "b"]), BG);
+    screen.setSize(10, 2);
+    screen.writeFrame(frame3(["a", "b"]), BG);
+    expect(writes.length).toBe(1);
+  });
+
   test("a shrinking frame clears the leftover rows", () => {
     const { writes, write } = sink();
     const screen = new Screen(10, 4, write);
