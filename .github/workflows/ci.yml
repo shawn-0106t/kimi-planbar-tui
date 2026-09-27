@@ -1,0 +1,66 @@
+name: CI
+
+# The four editions' full local gate set (AGENTS.md "Testing / self-checks"),
+# on windows-latest because every stack reaches for Windows console APIs.
+# Deliberately NOT in CI: the real-console probes (scripts/probe-owned-console,
+# ts/scripts/verify — they need an interactive console) and the release
+# packaging (version scheme + release notes are maintainer decisions).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    name: gates (windows-latest)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Rust — unit tests + oracle build
+        working-directory: rust
+        run: |
+          cargo test --quiet
+          cargo build --quiet   # the debug exe is the parity oracle for the other editions
+
+      - name: Go — vet, fmt, tests, parity
+        working-directory: go
+        run: |
+          go vet ./...
+          test -z "$(gofmt -l .)"
+          go test ./...
+          go run ./scripts/parity
+
+      - name: Bun — install + tests
+        working-directory: ts
+        run: |
+          bun install
+          bun run test
+
+      - name: Node — typecheck, tests
+        working-directory: ts-nodejs
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - name: Bun — parity vs the Rust oracle
+        working-directory: ts
+        run: bun run parity
+
+      - name: Node — parity vs the Rust oracle
+        working-directory: ts-nodejs
+        run: npm run parity
