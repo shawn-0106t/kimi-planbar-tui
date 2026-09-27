@@ -41,6 +41,8 @@ Get the latest `kimi-planbar-tui.exe` from [Releases](../../releases), or build 
 
 > The Bun edition's exe (`kpt-tui.exe`) shipped only as a historical v0.1.1 asset and is published again starting with v0.1.2 (~90 MB — it embeds the Bun runtime).
 
+> The Go edition's exe (`kpt-tui-go.exe`, ~12 MB — fully ahead-of-time compiled, no runtime embedded) is built from source (below) and ships with the next joint release.
+
 > Windows SmartScreen may warn on first launch because the exe is not code-signed. Click "More info" → "Run anyway" — this is expected for unsigned personal builds.
 
 ## Requirements
@@ -70,7 +72,7 @@ Launch `kimi-planbar-tui.exe` inside a terminal. Keys:
 | `Esc` | Back |
 | `q` | Quit (the terminal is always restored on exit) |
 
-> **Chinese IME users**: with the input method in Chinese mode, letter keys (`r`/`s`/`k`/`c`/`g`/`q`) go into pinyin composition instead of the app. Press `Shift` to switch to English first — this applies to all editions (Rust/Node/Bun alike).
+> **Chinese IME users**: with the input method in Chinese mode, letter keys (`r`/`s`/`k`/`c`/`g`/`q`) go into pinyin composition instead of the app. Press `Shift` to switch to English first — this applies to all editions (Rust/Node/Bun/Go alike).
 
 ## Portable mode
 
@@ -121,7 +123,19 @@ bun run parity          # diff --test-fetch / --test-update against the Rust exe
 
 > **Quit the Bun edition with `q`**: whether Ctrl+C reaches the app drifts with the Bun runtime version (swallowed when measured on WT 1.24 / conhost, 2026-09-20; quitting normally again on Bun 1.4.2, re-measured 2026-09-25). `q` always works. See SPEC 22.6.
 
-All three editions implement the same contract, `docs/SPEC.md`; the places where a TS edition is mechanically different are registered in SPEC chapter 22 (for example: behind TLS-inspecting security software a Bun script run needs `--use-system-ca` for the GitHub API version-check fallback, and the Bun exe cannot embed that flag — the quota and changelog paths are unaffected — while the Node SEA exe has it baked in via `execArgv`).
+### Go edition (bubbletea v2 + lipgloss)
+
+Requires Go 1.27 on Windows (dependencies: `golang.org/x/sys/windows` for the registry and Win32 console calls, `mattn/go-runewidth` for East Asian cell widths; everything else is stdlib). No Node, no Cargo. The result is a single ahead-of-time-compiled exe (~12 MB — an order of magnitude smaller than the TS editions because no runtime is embedded).
+
+```bash
+cd go
+go run .                        # run the TUI straight from main.go
+go build -o dist/kpt-tui-go.exe .   # exe at go/dist/kpt-tui-go.exe (release builds add -ldflags "-s -w")
+go test ./...                   # unit suite (core + tui; the tests pin TZ themselves)
+go run ./scripts/parity         # diff --test-fetch / --test-update against the Rust exe
+```
+
+All four editions implement the same contract, `docs/SPEC.md`; the places where an edition is mechanically different are registered in SPEC chapter 22 (for example: behind TLS-inspecting security software a Bun script run needs `--use-system-ca` for the GitHub API version-check fallback, and the Bun exe cannot embed that flag — the quota and changelog paths are unaffected — while the Node SEA exe has it baked in via `execArgv`).
 
 Headless self-checks (useful in CI or after changes):
 
@@ -150,6 +164,7 @@ After that, `kimi-planbar-tui` works in any terminal. Alternative: copy `rust/ta
 ## Tech notes
 
 - Single Rust crate in `rust/`: ratatui + crossterm (TUI), tokio + reqwest + serde (async/HTTP/JSON), winreg (registry), windows 0.61 (Win32 console), regex + chrono
+- The Go edition in `go/` (fourth implementation, feature-complete and aligned to the Rust fixes): bubbletea v2 + lipgloss for the TUI, `golang.org/x/sys/windows` for the registry and Win32 console (no `reg.exe` subprocess), versioned via `go/VERSION`; a native console probe (`go/scripts/probe-owned-console`) verifies the owned-console shrink, input reach and the ctrl-handler exit paths in a real console
 - The Bun + OpenTUI TS edition in `ts/` — maintained again (unfrozen 2026-09-25; was experimental/frozen before): `@opentui/core` (imperative render API, no React), registry through `reg.exe` child processes, and the Win32 console pieces (raw mode, console-ownership check, window shrink) through `bun:ffi`
 - The supported Node TS edition in `ts-nodejs/`: Node 24 with a handwritten ANSI render layer (no TUI library — line-level diff writes, an embedded wcwidth table, and a `sanitize()` firewall for external strings), registry through `reg.exe`, packaged as a Node SEA exe with `--use-system-ca` baked into `execArgv`
 - The release exe embeds a Windows VERSIONINFO resource and the app icon via `rust/build.rs` (`winresource` build-dependency, `rust/assets/icon.ico`); FileVersion/ProductVersion derive automatically from `CARGO_PKG_VERSION`, and embedding failure only warns (machines without the Windows SDK rc.exe still compile)

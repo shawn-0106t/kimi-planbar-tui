@@ -6,7 +6,7 @@
 > - **第一篇 项目规格**（第 1–9 章）：目标、架构、数据流、安全、构建发布、维护边界
 > - **第二篇 UI 与行为规格**（第 10–22 章）：配色、布局、API 解析、持久化等全部数值细则；第 22 章登记 TS 版与 Rust 版不等价的实现机制
 >
-> **版本状态**：`rust/`（Rust 版）为持续维护的推荐实现；`ts-nodejs/`（Node 版）与 `ts/`（Bun + OpenTUI 版，2026-09-25 解冻）为受支持的替代实现，版本号独立。本规格其余章节描述的行为契约以 Rust 版为基准，对两个 TS 版同样成立；第 22 章标注各版专有的条目为该版实现差异登记。
+> **版本状态**：`rust/`（Rust 版）为持续维护的推荐实现；`ts-nodejs/`（Node 版）、`ts/`（Bun + OpenTUI 版，2026-09-25 解冻）与 `go/`（Go 版，bubbletea v2 / lipgloss）为受支持的替代实现，版本号独立。本规格其余章节描述的行为契约以 Rust 版为基准，对其余各版同样成立；第 22 章标注各版专有的条目为该版实现差异登记（22.7 为 Go 版登记）。
 >
 > 章节编号与托盘版（kimi-planbar-tray）的 SPEC 保持一致，便于交叉对照；其中 **第 10 章（窗口规格）、第 14 章（托盘行为）、第 15 章（动画）对 TUI 版不适用**，以短章声明原因。其余章节内容相同的，本文档仍完整重述契约——本文档可独立成立，不依赖托盘版 SPEC。
 >
@@ -52,7 +52,7 @@ Windows 终端常驻仪表盘（无托盘、无窗口、无动画），让 Kimi 
 
 ### 3.1 仓库结构
 
-Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版有两个并行实现——Bun + OpenTUI 版位于 `ts/`（2026-09-25 起恢复维护），Node 24 + 手写 ANSI 版位于 `ts-nodejs/`（受支持）。维护口径：Rust 版为现行推荐实现，两个 TS 版为受支持替代；三者历史上共享同一行为契约（本规格）：
+Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `rust/`（非 workspace）；TS 版有两个并行实现——Bun + OpenTUI 版位于 `ts/`（2026-09-25 起恢复维护），Node 24 + 手写 ANSI 版位于 `ts-nodejs/`（受支持）；Go 版（bubbletea v2 / lipgloss）位于 `go/`。维护口径：Rust 版为现行推荐实现，两个 TS 版与 Go 版为受支持替代；各版历史上共享同一行为契约（本规格）：
 
 - `rust/Cargo.toml` / `rust/Cargo.lock` — 包名与二进制名均为 `kimi-planbar-tui`
 - `rust/src/` — 后端 core 模块（自托盘版 `rust/src-tauri/src/` 去 Tauri 化移植）+ `rust/src/format.rs`（格式化 helper，移植自托盘版前端 `src/common.ts`）+ `rust/src/app.rs` 与 `rust/src/ui/`（全新代码：事件循环与 ratatui 视图层）
@@ -63,7 +63,7 @@ Monorepo 布局（参照托盘版 kimi-planbar-tray）：Rust 版 crate 位于 `
 - `ts-nodejs/package.json` — 包名 `kimi-planbar-tui-ts-nodejs`，版本独立从 0.1.0 起步
 - `ts-nodejs/src/core/` — 自 `ts/src/core/` 平移的同一套十个模块（仅把 3 处 `Bun.*` 调用换成 `node:child_process`，其余逐字节一致）
 - `ts-nodejs/src/tui/` — 手写 ANSI 渲染层（ansi / wcwidth / screen / terminal）+ 视图（dashboard / settingsView / skillsView / app），无任何 TUI 库
-- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）由 Rust 版与两个 TS 版共享；**TS 版与 Rust 版不等价的实现机制统一登记在第 22 章**，按本规格章节号归档
+- `docs/` — 本规格（`SPEC.md` / `SPEC_EN.md`）由 Rust 版与其余各版共享；**各版与 Rust 版不等价的实现机制统一登记在第 22 章**（22.1–22.6 为 TS 版、22.7 为 Go 版），按本规格章节号归档
 - 根目录：`AGENTS.md`、`README.md`、`README_CN.md`、`LICENSE`、`NOTICE`
 
 ### 3.2 进程与视图模型
@@ -189,11 +189,21 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 
 产物同样受"终端要求"约束（Windows Terminal / VS Code 集成终端为基准）。`ts/dist/` 已 gitignore，不分发进仓库。
 
+**Go 版（受支持）**（前提：Windows + Go 1.27，依赖 `golang.org/x/sys/windows` 与 `mattn/go-runewidth`，其余为标准库；无 Node、无 Cargo）：
+
+```bash
+cd go
+go build -o dist/kpt-tui-go.exe .   # 单 exe（AOT 编译，~12 MB，不内嵌运行时）
+```
+
+产物同样受"终端要求"约束。`go/dist/` 已 gitignore，不分发进仓库。Go 版无 TS 的 `--use-system-ca` 问题（系统根证书即 Go 默认信任源）、无 `reg.exe` 子进程（注册表直读 Win32 API）——机制差异集中登记在 22.7。
+
 ### 7.2 测试
 
 - `cargo test`：skills frontmatter 解析单测（自托盘版移植）+ quota JSON 解析单测（字符串/数字混排、`isEnabled=false`、单位四舍五入、除零）——本项目族首个真正的解析测试套件
 - **TS 版（Node）**：`cd ts-nodejs && npm test`（`node:test` + 内置 `bun-shim`，用例与 Bun 版同源；TZ 由 `scripts/run-tests.mjs` 固定）。`npm run parity` 与 `node test/parity/diff.ts --ts-exe dist/kpt-tui-node.exe` 同上；`npm run typecheck` 保持 0 error。同一 golden 集与背靠背方法（22.1）
 - **TS 版（Bun）**：`cd ts && bun run test`（`bun:test`，用例对照 `rust/src/` 单测 1:1 移植，并额外对 Rust oracle golden 做全等断言；时区由脚本固定为 `Asia/Shanghai`，直接 `bun test` 会因时区使 golden 失败）。跨版本一致性：`bun run parity` 与本机 Rust exe 背靠背比对两个无头自检；`bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` 比对编译产物。验证方法与豁免项见 22.1
+- **Go 版**：`cd go && go test ./...`（core + tui 两包；测试在 `TestMain` 自钉 `TZ=Asia/Shanghai` 并带 TZ 守卫用例）。`go vet ./...` 与 `gofmt -l .` 须保持干净；`go run ./scripts/parity` 与本机 Rust exe 背靠背比对两个无头自检（逐字节一致）。真实控制台验收走 `go run ./scripts/probe-owned-console`（独占缩窗 / 按键注入 / `q`/`ctrlc`/`ctrlbreak` 退出路径）
 - 无头自检（详见第 19 章）：`--test-fetch` / `--test-update`，无互斥锁，天然可与运行中实例并存
 - 一致性验证：与托盘版同机背靠背跑 `--test-fetch`，JSON 逐字段 diff
 - 视觉验证：在 Windows Terminal 双主题下人工对照第 11/12 章
@@ -201,7 +211,7 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 
 ### 7.3 发布
 
-1. 版本号同步：Rust exe 的版本号唯一来源是 `rust/Cargo.toml`；Node 版在 `ts-nodejs/package.json` 独立升版；Bun 版在 `ts/package.json` 独立升版（2026-09-25 解冻后恢复；`bun.lock` 不记录 workspace 版本号，无需同步）
+1. 版本号同步：Rust exe 的版本号唯一来源是 `rust/Cargo.toml`；Node 版在 `ts-nodejs/package.json` 独立升版；Bun 版在 `ts/package.json` 独立升版（2026-09-25 解冻后恢复；`bun.lock` 不记录 workspace 版本号，无需同步）；Go 版在 `go/VERSION` 独立升版（`go:embed` 读入，构建时喂给 goversioninfo 生成 VERSIONINFO 资源）
 2. `cd rust && cargo build --release` 出单 exe
 3. 手动上传 GitHub Releases；**不要把二进制提交进仓库**（发布产物已 gitignore）
 4. 版本号独立于托盘版（kimi-planbar-tray），从 0.1.0 起步
@@ -218,7 +228,7 @@ bun run build:exe    # 单文件 exe → ts/dist/kpt-tui.exe（内嵌 Bun 运行
 
 - 本仓库独立维护，与托盘版（kimi-planbar-tray）仅共享数据契约（凭证链、settings.json schema、API 解析规则）；行为歧义时以本文档第二篇为准
 - core 模块与托盘版 `rust/src-tauri/src/` 保持行为一致；托盘版仓库为参考实现
-- **版本维护边界**：受支持实现为 Rust 版（`rust/`）、Node 版（`ts-nodejs/`）与 Bun 版（`ts/`，2026-09-25 解冻）。`ts/`（Bun + OpenTUI 版）曾于 v0.1.1 后冻结为实验性留档，**2026-09-25 解冻恢复维护**（修复独占控制台启动崩溃与渲染层鼠标劫持，见 `HANDOFF.md` 与 22.5/22.6），重新作为受支持替代版本随版本号独立演进；2026-09-19 至 2026-09-25 期间标注为「已冻结」的历史登记（含 22.4 的 Bun 子条）仍按当时事实保留。
+- **版本维护边界**：受支持实现为 Rust 版（`rust/`）、Node 版（`ts-nodejs/`）、Bun 版（`ts/`，2026-09-25 解冻）与 Go 版（`go/`，2026-09-26 起第四实现，行为已与 Rust 修正对齐）。`ts/`（Bun + OpenTUI 版）曾于 v0.1.1 后冻结为实验性留档，**2026-09-25 解冻恢复维护**（修复独占控制台启动崩溃与渲染层鼠标劫持，见 `HANDOFF.md` 与 22.5/22.6），重新作为受支持替代版本随版本号独立演进；2026-09-19 至 2026-09-25 期间标注为「已冻结」的历史登记（含 22.4 的 Bun 子条）仍按当时事实保留。
 
 | 文档 | 定位 |
 |---|---|
@@ -548,7 +558,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 ## 20. 其他实现细节（TUI 专有）
 
-- **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。Windows 控制台强制路径不经过 panic hook：`SetConsoleCtrlHandler` 注册的处理器对 `CTRL_C_EVENT`（进程外投递的 Ctrl+C；raw mode 下键盘 Ctrl+C 不产生控制台事件，仍走按键路径）、`CTRL_BREAK_EVENT`（Ctrl+Break）与 `CTRL_CLOSE_EVENT`（关闭控制台窗口）执行同一恢复序列，然后交还默认终止（2026-09-26 起）。终端被留在 raw mode 是 TUI 最严重的事故。两个 TS 版的等价机制（Bun 版需 `bun:ffi SetConsoleMode` 并在每次输入/重绘前重申；Node 版由 Node 自身处理 raw mode，但须保证恢复处理器先于终端初始化注册）见 22.5。
+- **终端恢复（最高优先级）**：启动进入 raw mode + alternate screen 并隐藏光标；**每一条退出路径都必须恢复终端**（离开 alternate screen、关 raw mode、显示光标）——正常 `q` 退出如此，panic 亦如此（通过 panic hook 先恢复再打印）。Windows 控制台强制路径不经过 panic hook：`SetConsoleCtrlHandler` 注册的处理器对 `CTRL_C_EVENT`（进程外投递的 Ctrl+C；raw mode 下键盘 Ctrl+C 不产生控制台事件，仍走按键路径）、`CTRL_BREAK_EVENT`（Ctrl+Break）与 `CTRL_CLOSE_EVENT`（关闭控制台窗口）执行同一恢复序列，然后交还默认终止（2026-09-26 起）。终端被留在 raw mode 是 TUI 最严重的事故。各 TS 版的等价机制（Bun 版需 `bun:ffi SetConsoleMode` 并在每次输入/重绘前重申；Node 版由 Node 自身处理 raw mode，但须保证恢复处理器先于终端初始化注册）见 22.5，Go 版的 ctrl handler 与恢复模型见 22.7。
 - **启动时最小窗口（72×13）**：`run()` 起始、终端初始化之前，把窗口收缩到线框布局的最小尺寸（72 列 × 13 行，常量 `MIN_WIN_COLS`/`MIN_WIN_ROWS`）。**守卫**：仅当进程独占控制台时执行——`GetConsoleProcessList` 返回恰好 1 个附加进程（双击/新开窗口启动）；从已有终端会话（cmd / pwsh / Git Bash / 其他 WT 标签页）启动时控制台是共享的，绝不改动用户窗口。两条 best-effort 通道，异常静默吞掉：(a) xterm 窗口操作转义 `ESC [ 8 ; 13 ; 72 t`（Windows Terminal 1.22+ 支持）；(b) conhost Win32 序列：先 `SetConsoleWindowInfo` 缩视口到 1×1 → `SetConsoleScreenBufferSize(72,13)` → `SetConsoleWindowInfo` 设为完整 72×13 矩形。**TS 版（Bun）同判据同通道**：`GetConsoleProcessList` 经 `bun:ffi` 调用，FFI 不可用时退回终端环境变量启发式（`SMALL_RECT` 指针传参的手工打包见 22.6）。**TS 版（Node）**：无 Win32 binding，守卫只用环境变量启发式（`WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID`/`PROMPT` 全缺才缩——`PROMPT` 由交互式 cmd 会话设置，用于在宿主已支持 CSI 8 的今天避免把用户所在的 cmd 会话误判为独占窗口），通道仅 (a)；2026-09-27 实测宿主已执行该转义、启动缩窗真实发生，尺寸读取的配套陷阱与修复见 22.6。
 - **事件驱动重绘 + 250ms 心跳**：每个事件（键盘、配额 mpsc、版本 mpsc、skills mpsc、主题 tick、resize）处理后立即在事件循环顶部重绘一帧——不存在合并/节流（任意事件都会即时出帧）。另有一个 250ms 心跳 tick（`draw_tick`）在无事件时唤醒循环，保证倒计时文案持续刷新；倒计时文案随每次重绘重算（输入 `reset_at - now`），无独立 1Hz 定时器。
 - **系统主题 30s 轮询**：crossterm 无系统事件源，`theme=system` 时以 30s 间隔轮询注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` 的 `AppsUseLightTheme`（DWORD，0=dark，1=light，缺失默认 1），替代托盘版的 `WM_SETTINGCHANGE` 实时监听；`theme=light|dark` 时该轮询不影响配色。
@@ -590,7 +600,7 @@ QuotaResult  { five_hour: Option<QuotaSegment>, week: Option<QuotaSegment>,
 
 > 本章集中登记两个 TS 版——Bun 版（`ts/`，Bun + OpenTUI）与 Node 版（`ts-nodejs/`，Node 24 + 手写 ANSI）——在实现机制上与 Rust 版不等价之处，按本规格章节号归档。前述各章描述的行为契约以 Rust 版为基准；本章条目均为实现层面的等价机制或已知偏差——Rust/Node 相关条目由测试锁定，Bun 版条目自 2026-09-25 解冻起恢复随代码演进（此前的冻结期登记按当时事实保留）。
 >
-> **状态**：Bun 版（`ts/`）曾于 2026-09-19 至 2026-09-25 冻结，现恢复维护；本章 Bun 版条目按当前代码事实维护，冻结期的历史记录以「实测日期」标注保留。现行实现为 Rust 版与两个 TS 版。
+> **状态**：Bun 版（`ts/`）曾于 2026-09-19 至 2026-09-25 冻结，现恢复维护；本章 Bun 版条目按当前代码事实维护，冻结期的历史记录以「实测日期」标注保留。现行实现为 Rust 版、两个 TS 版与 Go 版（22.7）。
 
 ### 22.1 验证方法（对应 7.2 / 19）
 

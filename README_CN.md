@@ -41,6 +41,8 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 
 > Bun 版的 `kpt-tui.exe` 历史上仅随 v0.1.1 发布过，自 v0.1.2 起恢复随 Releases 发布（约 90 MB——内嵌 Bun 运行时）。
 
+> Go 版的 `kpt-tui-go.exe`（约 12 MB——纯 AOT 编译，不内嵌运行时）可从源码构建（见下文），将随下一次联合发版上架 Releases。
+
 > exe 未做代码签名，首次运行 Windows SmartScreen 可能提示"已保护你的电脑"——点"更多信息 → 仍要运行"即可，这是未签名个人作品的正常提示。
 
 ## 使用前提
@@ -70,7 +72,7 @@ r Refresh · s Settings · k Skills · c Console · g Releases · q Quit
 | `Esc` | 返回 |
 | `q` | 退出（退出时终端一定会被恢复原状） |
 
-> **中文输入法用户**：输入法处于中文模式时，字母键（`r`/`s`/`k`/`c`/`g`/`q`）会先进拼音组字、不会送达应用。先按 `Shift` 切到英文再按——三个版本（Rust/Node/Bun）行为一致。
+> **中文输入法用户**：输入法处于中文模式时，字母键（`r`/`s`/`k`/`c`/`g`/`q`）会先进拼音组字、不会送达应用。先按 `Shift` 切到英文再按——四个版本（Rust/Node/Bun/Go）行为一致。
 
 ## 便携模式
 
@@ -121,7 +123,19 @@ bun run parity          # 与 Rust 版 exe 背靠背比对 --test-fetch / --test
 
 > **Bun 版退出请用 `q`**：Ctrl+C 能否送达随 Bun 运行时版本漂移（2026-09-20 实测 WT 1.24 / conhost 下被吞掉；2026-09-25 在 Bun 1.4.2 复测已恢复正常退出）。`q` 始终可用。详见 SPEC 22.6。
 
-三个版本共享同一行为契约 `docs/SPEC.md`；TS 版与 Rust 版机制不等价之处统一登记在 SPEC 第 22 章（例如：TLS 检查类安全软件环境下，Bun 版脚本运行需 `--use-system-ca` 才能走通 GitHub API 兜底，且 Bun 版编译产物无法内嵌该开关——额度与 changelog 主路径均不受影响；Node 版 SEA 产物则经 `execArgv` 固化，不受影响）。
+### Go 版（bubbletea v2 + lipgloss）
+
+需要 Windows + Go 1.27（依赖：`golang.org/x/sys/windows`（注册表与 Win32 控制台调用）、`mattn/go-runewidth`（东亚格宽）；其余全为标准库）。不需要 Node 与 Cargo。产物为单个 AOT 编译 exe（约 12 MB——不内嵌运行时，比两个 TS 版小一个数量级）。
+
+```bash
+cd go
+go run .                        # 直接从 main.go 起 TUI
+go build -o dist/kpt-tui-go.exe .   # exe 位于 go/dist/kpt-tui-go.exe（release 构建加 -ldflags "-s -w"）
+go test ./...                   # 单元测试套件（core + tui；测试自钉 TZ）
+go run ./scripts/parity         # 与 Rust 版 exe 背靠背比对 --test-fetch / --test-update 输出
+```
+
+四个版本共享同一行为契约 `docs/SPEC.md`；各版本与 Rust 版机制不等价之处统一登记在 SPEC 第 22 章（例如：TLS 检查类安全软件环境下，Bun 版脚本运行需 `--use-system-ca` 才能走通 GitHub API 兜底，且 Bun 版编译产物无法内嵌该开关——额度与 changelog 主路径均不受影响；Node 版 SEA 产物则经 `execArgv` 固化，不受影响）。
 
 无头自检（适合 CI 或改动后验证）：
 
@@ -150,6 +164,7 @@ cargo install --path rust   # 安装 release exe 到 ~/.cargo/bin（Rust 用户�
 ## 技术说明
 
 - 单 Rust crate 位于 `rust/`：ratatui + crossterm（TUI），tokio + reqwest + serde（异步/HTTP/JSON），winreg（注册表），windows 0.61（Win32 控制台），regex + chrono
+- Go 版位于 `go/`（第四实现，功能完整并与 Rust 修正对齐）：bubbletea v2 + lipgloss 渲染 TUI，`golang.org/x/sys/windows` 直读注册表与 Win32 控制台（不经 `reg.exe` 子进程），版本号取自 `go/VERSION`；自带原生 console 探针（`go/scripts/probe-owned-console`）在真实控制台验证独占缩窗、按键可达与 ctrl handler 退出路径
 - Bun + OpenTUI 的 TS 版位于 `ts/`——已恢复维护（2026-09-25 解冻，此前为实验性冻结）：`@opentui/core`（命令式渲染，不用 React），注册表走 `reg.exe` 子进程，Win32 控制台能力（raw mode / 控制台独占判定 / 缩窗）经 `bun:ffi` 调 kernel32
 - 受支持的 Node 版 TS 实现位于 `ts-nodejs/`：Node 24 + 手写 ANSI 渲染层（不引 TUI 库——行级 diff 写屏、内嵌 wcwidth 码点表、外部字符串一律过 `sanitize()`），注册表走 `reg.exe`，以 Node SEA 打包且 `--use-system-ca` 经 `execArgv` 固化进产物
 - release exe 通过 `rust/build.rs`（`winresource` build-dependency）嵌入 Windows VERSIONINFO 资源与应用图标（`rust/assets/icon.ico`）；FileVersion/ProductVersion 自动取自 `CARGO_PKG_VERSION`，嵌入失败只告警不中断构建（无 Windows SDK rc.exe 的机器也能编译）

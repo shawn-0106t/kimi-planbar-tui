@@ -6,7 +6,7 @@
 > - **Part 1 — Project specification** (chapters 1–9): goals, architecture, data flow, security, build & release, maintenance boundaries
 > - **Part 2 — UI & behavior specification** (chapters 10–22): colors, layout, API parsing, persistence, and every numeric detail; chapter 22 registers the mechanisms where a TS edition is not equivalent to Rust
 >
-> **Edition status**: the Rust edition (`rust/`) is the maintained, recommended implementation; the Node edition (`ts-nodejs/`) and the Bun + OpenTUI edition (`ts/`, unfrozen on 2026-09-25) are supported alternatives, versioned independently. The behavior contract in the rest of this document is benchmarked on the Rust edition and holds for both TS editions; chapter 22 registers each edition's implementation deltas.
+> **Edition status**: the Rust edition (`rust/`) is the maintained, recommended implementation; the Node edition (`ts-nodejs/`), the Bun + OpenTUI edition (`ts/`, unfrozen on 2026-09-25) and the Go edition (`go/`, bubbletea v2 / lipgloss) are supported alternatives, versioned independently. The behavior contract in the rest of this document is benchmarked on the Rust edition and holds for the other editions; chapter 22 registers each edition's implementation deltas (22.7 for the Go edition).
 >
 > Chapter numbering matches the tray edition's (kimi-planbar-tray) SPEC for cross-reference; **chapter 10 (window spec), chapter 14 (tray behavior), and chapter 15 (animations) do not apply to the TUI edition** and are short stubs explaining why. Where content is identical to the tray edition, the contract is restated in full — this document stands alone and does not depend on the tray edition's SPEC.
 >
@@ -52,7 +52,7 @@ A terminal-resident dashboard for Windows (no tray, no windows, no animations) t
 
 ### 3.1 Repository structure
 
-Monorepo layout (mirroring the tray edition's kimi-planbar-tray): the Rust crate lives in `rust/` (not a workspace); the TS edition has two parallel implementations — Bun + OpenTUI in `ts/` (maintained again as of 2026-09-25) and Node 24 + handwritten ANSI in `ts-nodejs/` (supported). Maintenance: the Rust edition is the recommended implementation, both TS editions are supported alternatives. Historically all three shared this behavior contract:
+Monorepo layout (mirroring the tray edition's kimi-planbar-tray): the Rust crate lives in `rust/` (not a workspace); the TS edition has two parallel implementations — Bun + OpenTUI in `ts/` (maintained again as of 2026-09-25) and Node 24 + handwritten ANSI in `ts-nodejs/` (supported); the Go edition (bubbletea v2 / lipgloss) lives in `go/`. Maintenance: the Rust edition is the recommended implementation, and both TS editions plus the Go edition are supported alternatives. All editions share this behavior contract:
 
 - `rust/Cargo.toml` / `rust/Cargo.lock` — package and binary name are both `kimi-planbar-tui`
 - `rust/src/` — backend core modules (ported from the tray edition's `rust/src-tauri/src/` with Tauri removed) + `rust/src/format.rs` (formatting helpers ported from the tray frontend's `src/common.ts`) + `rust/src/app.rs` and `rust/src/ui/` (all-new code: event loop and ratatui view layer)
@@ -189,11 +189,21 @@ bun run build:exe    # single-file exe → ts/dist/kpt-tui.exe (embeds the Bun r
 
 The same terminal baseline applies. `ts/dist/` is gitignored; binaries never enter the repository.
 
+The **Go edition** (supported) (prerequisites: Windows + Go 1.27, depending on `golang.org/x/sys/windows` and `mattn/go-runewidth`, everything else stdlib; no Node, no Cargo):
+
+```bash
+cd go
+go build -o dist/kpt-tui-go.exe .   # single exe (AOT-compiled, ~12 MB, no embedded runtime)
+```
+
+The same terminal baseline applies. `go/dist/` is gitignored; binaries never enter the repository. The Go edition has neither the TS `--use-system-ca` concern (the system roots are Go's default trust store) nor a `reg.exe` subprocess (the registry goes straight to the Win32 API) — the mechanical differences are registered in §22.7.
+
 ### 7.2 Testing
 
 - `cargo test`: skills frontmatter parser unit tests (ported from the tray edition) + quota JSON parsing unit tests (mixed string/number fields, `isEnabled=false`, unit rounding, divide-by-zero) — the first real parsing test suite in the project family
 - **TS edition (Node)**: `cd ts-nodejs && npm test` (`node:test` plus the bundled `bun-shim`; same cases as the Bun edition; TZ pinned by `scripts/run-tests.mjs`). `npm run parity` and `node test/parity/diff.ts --ts-exe dist/kpt-tui-node.exe` mirror the above; `npm run typecheck` must stay at 0 errors. Same golden set and back-to-back method (§22.1)
 - **TS edition (Bun)**: `cd ts && bun run test` (`bun:test`, cases ported 1:1 from the Rust unit tests plus exact-equality assertions against Rust oracle goldens; the script pins the timezone to `Asia/Shanghai` — plain `bun test` breaks the goldens). Cross-edition consistency: `bun run parity` diffs both headless self-checks against the local Rust exe back to back, and `bun run test/parity/diff.ts --ts-exe dist/kpt-tui.exe` does the same for the compiled build. Method and exemptions: §22.1
+- **Go edition**: `cd go && go test ./...` (two packages, core + tui; the tests pin `TZ=Asia/Shanghai` themselves in `TestMain` with a TZ guard case). `go vet ./...` and `gofmt -l .` must stay clean; `go run ./scripts/parity` diffs both headless self-checks against the local Rust exe byte for byte. Real-console acceptance goes through `go run ./scripts/probe-owned-console` (owned shrink / injected keys / `q`/`ctrlc`/`ctrlbreak` exit paths)
 - Headless self-checks (details in chapter 19): `--test-fetch` / `--test-update`; with no mutex they naturally coexist with running instances
 - Consistency check: run `--test-fetch` back to back with the tray edition on the same machine and diff the JSON field by field
 - Visual check: manually compare against chapters 11/12 in Windows Terminal under both themes
@@ -201,7 +211,7 @@ The same terminal baseline applies. `ts/dist/` is gitignored; binaries never ent
 
 ### 7.3 Release
 
-1. Version bump: `rust/Cargo.toml` is the only version source for the Rust exe; the Node edition bumps independently in `ts-nodejs/package.json`; the Bun edition bumps independently in `ts/package.json` (maintained again as of 2026-09-25; `bun.lock` does not record the workspace version, so no lockfile sync is needed)
+1. Version bump: `rust/Cargo.toml` is the only version source for the Rust exe; the Node edition bumps independently in `ts-nodejs/package.json`; the Bun edition bumps independently in `ts/package.json` (maintained again as of 2026-09-25; `bun.lock` does not record the workspace version, so no lockfile sync is needed); the Go edition bumps independently in `go/VERSION` (read via `go:embed`, fed to goversioninfo for the VERSIONINFO resource)
 2. `cd rust && cargo build --release` produces the single exe
 3. Upload to GitHub Releases manually; **do not commit binaries** (release artifacts are gitignored)
 4. Versioning is independent of the tray edition (kimi-planbar-tray) and starts at 0.1.0
@@ -218,7 +228,7 @@ The same terminal baseline applies. `ts/dist/` is gitignored; binaries never ent
 
 - This repo is maintained independently; it shares only the data contract with the tray edition (credential chain, settings.json schema, API parsing rules). When behavior is ambiguous, Part 2 of this document is the contract
 - Core modules stay behaviorally identical to the tray edition's `rust/src-tauri/src/`; the tray repo is the reference implementation
-- **Edition maintenance boundary**: the supported implementations are the Rust edition (`rust/`), the Node edition (`ts-nodejs/`) and — unfrozen on 2026-09-25 to land the owned-console startup crash fix and the renderer mouse-tracking fix (see `HANDOFF.md`, §22.5 and §22.6) — the Bun edition (`ts/`), which evolves independently with its own version number; register entries marked "frozen" between 2026-09-19 and 2026-09-25 are retained as they were recorded at the time (including the Bun sub-entry in §22.4).
+- **Edition maintenance boundary**: the supported implementations are the Rust edition (`rust/`), the Node edition (`ts-nodejs/`), the Bun edition (`ts/`) and the Go edition (`go/`, the fourth implementation as of 2026-09-26, aligned to the Rust fixes). The Bun edition (`ts/`) was frozen as an experimental archive after v0.1.1 and — unfrozen on 2026-09-25 to land the owned-console startup crash fix and the renderer mouse-tracking fix (see `HANDOFF.md`, §22.5 and §22.6) — evolves independently with its own version number as a supported alternative again; register entries marked "frozen" between 2026-09-19 and 2026-09-25 are retained as they were recorded at the time (including the Bun sub-entry in §22.4).
 
 | Document | Role |
 |---|---|
@@ -663,7 +673,7 @@ Both TS editions share one origin (the Node edition is ported from the Bun one),
 
 ### 22.6 No single-instance mutex & minimal window on launch (maps to 20)
 
-- **No single-instance mutex**: all three editions agree — multiple instances may run side by side, no named mutex exists.
+- **No single-instance mutex**: all editions agree — multiple instances may run side by side, no named mutex exists.
 - **Bun-edition shrink uses the same criteria as Rust**: `kernel32!GetConsoleProcessList` is reachable through `bun:ffi`, so ownership means exactly 1 attached process; the environment-variable heuristic is only a fallback when the FFI is unavailable; a non-TTY `stdout` never shrinks. Both shrink channels match Rust. Argument passing: `SetConsoleScreenBufferSize`'s `COORD` is a by-value parameter, hand-packed into an integer register per the x64 calling convention (`COORD = (y<<16)|x`), but `SetConsoleWindowInfo`'s third parameter is a **`const SMALL_RECT *` (pointer)** — the struct must live in an 8-byte Buffer (four little-endian i16: left/top/right/bottom) passed through `ptr()`. **Fixed 2026-09-25**: the old implementation packed the struct bits by value into the pointer slot (the first call passed 0 → null dereference), crashing every owned-console launch (double-click / `start`) natively — segfault at 0x0, exit code 3, a window flash with no output; shared-console and non-TTY scenarios were short-circuited by the guard, which is why it went unnoticed so long. Regression pin: `ts/test/shrink.test.ts` (byte layout); the full incident record is `HANDOFF.md`.
 - **Node-edition shrink is an environment-variable heuristic**: with no Win32 binding, any of `WT_SESSION`/`TERM_PROGRAM`/`ConEmuPID`/`PROMPT` present means a shared console and no resize ever (`PROMPT` is set by an interactive cmd session — now that the host honors CSI 8, a cmd started from the Start menu would otherwise be misread as an owned window and shrunk, violating SPEC 20; added in the 2026-09-27 review round); all four absent means `ESC[8;13;72t` is written to stdout before entering the alternate screen (errors silently swallowed; the call returns whether the escape was written so the caller only settles when a resize is in flight). **Measured conclusion (2026-09-20, WT 1.24 / conhost, probed via a Start-Process'd fresh window and re-reading `stdout.columns`)**: at that time ConPTY did not forward window-manipulation escapes — CSI 8, CSI 4 (pixels) and `mode con` all failed to resize, so the sequence was a graceful no-op. **2026-09-27 update: CSI 8 now works on this machine (Windows 11 26200, host = a WT-hosted cmd window)** — the Go-native probe measured the fresh-console viewport as exactly 72x13 after the Node edition's startup, so **the startup shrink now really happens**; the size-cache trap below was exposed by exactly that and is fixed.
 - **libuv caches stdout's console size — a host-side CSI 8 shrink never lands in `stdout.columns/rows` (measured and fixed 2026-09-27)**: libuv reads the size once at handle init and refreshes it only from a WINDOW_BUFFER_SIZE_EVENT reaching a READ loop — the write-only stdout never runs one. Measured: 4.5 s after writing the shrink escape `stdout.rows` still reported the initial 120x30 while the real viewport was 72x13; the frame was composed for 30 rows and the footer was painted below the visible viewport — the user-visible symptom was "the menu row is missing and only appears after I enlarge the window" (past 30 rows). Three-layer fix: ① `refreshStdoutSize()` (the private `_refreshSize` hook forcing uv_tty_get_winsize, guarded for both absence and throw — a future Node without it or a dead handle silently keeps the cached values) runs before every draw; ② `draw()` calls `setSize` every frame (no-op while unchanged, full repaint on change), matching Rust's per-frame live-viewport semantics; ③ a 150 ms settle after the escape is actually written gives the host time to finish the shrink — the first frame being correct is the combination of that settle and the per-draw `_refreshSize`. Post-fix probe verification: the footer `r Refresh · … · q Quit` appears on the last row of the 72x13 viewport.

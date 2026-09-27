@@ -6,9 +6,9 @@ Guidance for AI coding agents working in this repository. Read this first; it as
 
 Kimi Planbar TUI is a **terminal-resident dashboard** (no tray, no windows, no animations) that shows Kimi Code plan quota — 5-hour window + weekly usage with reset countdowns, Extra Usage booster wallet, Kimi Code CLI version check, and a read-only skills list — inside a terminal. It reads the local Kimi Code CLI OAuth token (read-only) and calls `GET https://api.kimi.com/coding/v1/usages`.
 
-This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition (maintained, recommended); `ts-nodejs/` holds the Node edition and `ts/` holds the Bun + OpenTUI edition — both supported alternatives with the same UI and behavior (`ts/` was frozen as experimental from 2026-09-19 to 2026-09-25 and was unfrozen to land the owned-console startup crash fix; see `HANDOFF.md`) — and `go/` holds the Go edition (bubbletea v2 / lipgloss, fourth implementation; M0–M4 complete, the Rust-fix alignment port is in and independently reviewed, doc sync done 2026-09-27 via SPEC 22.7 — release engineering pending — see `docs/PLAN-GO.md`). Where a TS edition is not mechanically equivalent to Rust, the register is **SPEC chapter 22** (`docs/SPEC.md` / `docs/SPEC_EN.md`), filed by SPEC chapter number.
+This is a **monorepo** (layout mirrors the sibling `kimi-planbar-tray`): `rust/` holds the Rust edition (maintained, recommended); `ts-nodejs/` holds the Node edition and `ts/` holds the Bun + OpenTUI edition — both supported alternatives with the same UI and behavior (`ts/` was frozen as experimental from 2026-09-19 to 2026-09-25 and was unfrozen to land the owned-console startup crash fix; see `HANDOFF.md`) — and `go/` holds the Go edition (bubbletea v2 / lipgloss, fourth implementation; M0–M4 complete, the Rust-fix alignment port is in and independently reviewed, doc sync done 2026-09-27 via SPEC 22.7 — release engineering pending — see `docs/PLAN-GO.md`). Where an edition is not mechanically equivalent to Rust, the register is **SPEC chapter 22** (`docs/SPEC.md` / `docs/SPEC_EN.md`), filed by SPEC chapter number.
 
-Current version: **0.1.1** in `rust/Cargo.toml` and `ts-nodejs/package.json`, **0.1.2** in `ts/package.json` (each edition bumps independently; versioning is **independent** of the sibling tray app `kimi-planbar-tray`).
+Current version: **0.1.1** in `rust/Cargo.toml` and `ts-nodejs/package.json`, **0.1.2** in `ts/package.json`, **0.1.0** in `go/VERSION` (each edition bumps independently; versioning is **independent** of the sibling tray app `kimi-planbar-tray`).
 
 Stack, Rust edition: Rust stable (MSVC) + **ratatui** (TUI framework) + **crossterm** (terminal backend/events) + tokio + reqwest + serde + winreg + windows 0.61 (Win32 console APIs, for minimal-window-on-launch) + regex + chrono. No Tauri, no WebView. Distribution is a single static release exe (~3–5 MB) via `cargo build --release` in `rust/`.
 
@@ -66,8 +66,8 @@ Data contract shared with the tray edition: same credential chain, same `setting
 │   │   └── probe-owned-console/  # Go-native owned-console acceptance probe (CREATE_NEW_CONSOLE + AttachConsole)
 │   └── testdata/golden/        # Rust-oracle goldens shared with the other editions (reset_time.txt etc.)
 ├── docs/
-│   ├── SPEC.md                 # authoritative behavior contract (Chinese), shared by the Rust and TS editions
-│   │                           # chapter 22 registers where each TS edition is NOT equivalent to Rust
+│   ├── SPEC.md                 # authoritative behavior contract (Chinese), shared by all editions
+│   │                           # chapter 22 registers where each edition is NOT equivalent to Rust (22.7 = Go)
 │   ├── SPEC_EN.md              # English translation, identical chapter numbering
 │   ├── REVIEW-M1.md            # M1 core-layer audit ledger (archived 2026-09-20): 5 Major + 7 Minor, all
 │   │                           # closed; a measured status table (file:line per item, incl. what is deliberately untested)
@@ -114,6 +114,14 @@ npm run dev             # run the TUI from src/main.ts
 npm run build:exe       # SEA single-file exe at ts-nodejs/dist/kpt-tui-node.exe (~88.7 MB; dist is gitignored)
 ```
 
+Go edition — prerequisites: Windows + Go 1.27 (module `golang.org/x/sys/windows` + `mattn/go-runewidth`; everything else is stdlib). No Node, no Cargo.
+
+```bash
+cd go
+go build -o dist/kpt-tui-go.exe .   # single exe at go/dist/kpt-tui-go.exe (~12 MB; dist is gitignored)
+go run .              # dev run works fine — no embedded frontend
+```
+
 Run the exe inside a terminal: **Windows Terminal** or the **VS Code integrated terminal** are the baseline targets. Legacy conhost works but needs `chcp 65001` first (UTF-8 code page), or box-drawing glyphs and CJK text render garbled.
 
 ## Testing / self-checks
@@ -154,13 +162,24 @@ npm run selfcheck:fetch                     # one self-check, like the Rust exe
 
 There is **no `--test-ui`** (no windows to construct) and **no single-instance check** — the self-checks work while other instances are running simply because nothing is locked. To verify behavioral parity with the tray edition, run both apps' `--test-fetch` back to back on the same machine and diff the JSON field by field.
 
-After changes: `cargo build` + `cargo test` (in `rust/`), then run `--test-fetch` and `--test-update` against the built exe, and eyeball the TUI in Windows Terminal under both themes. For `ts-nodejs/`, `npm test` + `npm run typecheck` + `npm run parity` must stay green. For `ts/`, `bun run test` must stay green, and any change to the startup-shrink path needs a real owned-console launch check (double-click or `start` the built exe — automated tests cannot reach that branch; this gap hid the 2026-09-25 segfault).
+Go edition — same two self-checks, same parity harness, plus vet/gofmt:
+
+```bash
+cd go
+go test ./...                             # unit suite (core + tui); tests pin TZ=Asia/Shanghai themselves
+go vet ./... && gofmt -l .                # must stay clean
+go run ./scripts/parity                   # diff both self-checks against rust/target/debug exe
+go run ./scripts/probe-owned-console -exe dist/kpt-tui-go.exe -exit q|ctrlc|ctrlbreak
+                                          # SPEC 20 real-console probes (owned shrink, input reach, ctrl handler)
+```
+
+After changes: `cargo build` + `cargo test` (in `rust/`), then run `--test-fetch` and `--test-update` against the built exe, and eyeball the TUI in Windows Terminal under both themes. For `ts-nodejs/`, `npm test` + `npm run typecheck` + `npm run parity` must stay green. For `ts/`, `bun run test` must stay green, and any change to the startup-shrink path needs a real owned-console launch check (double-click or `start` the built exe — automated tests cannot reach that branch; this gap hid the 2026-09-25 segfault). For `go/`, `go test` + `go vet` + `gofmt -l` + `go run ./scripts/parity` must stay green, and `scripts/probe-owned-console` covers the owned-console paths (size/input/exit, and `-exit ctrlbreak` for the ctrl-handler delivery).
 
 ## Release process
 
-1. Rust version bump: `rust/Cargo.toml` is the only place for the Rust exe — its VERSIONINFO FileVersion/ProductVersion derive from `CARGO_PKG_VERSION` automatically via `build.rs` (winresource). The Node edition bumps independently in `ts-nodejs/package.json`; the Bun edition bumps independently in `ts/package.json`.
-2. `cd rust && cargo build --release`; `cd ts-nodejs && npm install && npm test && npm run typecheck && npm run build:exe`; `cd ts && bun install && bun run test && bun run build:exe` (`bun run test`, not bare `bun test` — the script pins TZ, see the testing section).
-3. Distribute the exes via GitHub Releases (manual upload). **Do not commit binaries**; `rust/target/`, `ts/dist/`, `ts-nodejs/dist/` and `*.exe` are gitignored. Say in the release notes that the Node SEA build is ~88.7 MB and the Bun build ~90 MB because they embed their runtimes.
+1. Rust version bump: `rust/Cargo.toml` is the only place for the Rust exe — its VERSIONINFO FileVersion/ProductVersion derive from `CARGO_PKG_VERSION` automatically via `build.rs` (winresource). The Node edition bumps independently in `ts-nodejs/package.json`; the Bun edition bumps independently in `ts/package.json`; the Go edition bumps independently in `go/VERSION` (read via `go:embed`, fed to goversioninfo for the VERSIONINFO resource).
+2. `cd rust && cargo build --release`; `cd ts-nodejs && npm install && npm test && npm run typecheck && npm run build:exe`; `cd ts && bun install && bun run test && bun run build:exe` (`bun run test`, not bare `bun test` — the script pins TZ, see the testing section); `cd go && go test ./... && go vet ./... && gofmt -l . && CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/kpt-tui-go.exe .`.
+3. Distribute the exes via GitHub Releases (manual upload). **Do not commit binaries**; `rust/target/`, `ts/dist/`, `ts-nodejs/dist/`, `go/dist/` and `*.exe` are gitignored. Say in the release notes that the Node SEA build is ~88.7 MB, the Bun build ~90 MB and the Go build ~12 MB because of how they package their runtimes (the Go exe is fully ahead-of-time compiled, so it is an order of magnitude smaller).
 4. Both shipped exes are unsigned — SmartScreen warnings are expected and documented in the README. (postject prints a "signature seems corrupted" warning while injecting the SEA blob: expected — injection invalidates the stock node.exe Authenticode signature and the result ships unsigned.)
 
 ## Code style and conventions

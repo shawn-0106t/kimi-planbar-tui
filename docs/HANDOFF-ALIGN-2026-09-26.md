@@ -1,5 +1,7 @@
 # HANDOFF — Rust 对齐移植（Go 第二批 + TS 两版全量）：评审与收尾
 
+> **归档声明（2026-09-27）**：本交接的执行清单（§6）已全部完成——① 三个 code-reviewer 并行评审 + 两轮修复复审闭环（发现与修复：go `1c97a97`/`38e9395`/`fdd71d8`、ts `daae588`、ts-nodejs `579e075`/`c584dda`，渲染层用户实机缺陷追加 `2b62629`/`0c8d985`/`deab34f`，均入库并 push）；② 门禁复跑全绿（go test/vet/gofmt/parity、bun 293→294 pass/parity、npm 274→276 pass/typecheck 0 错/parity，parity 均与 Rust debug exe 逐字节一致）；③ 文档同步完成（SPEC §22.7 新增 + §20/22.3/22.5/22.6 修订、PLAN-GO 对齐小节与头部状态、HANDOFF §11/§12、README 双语与 AGENTS.md 补 Go 版条目、新建 `go/README.md`）；④ 向维护者汇报完毕（Node 版移植项 ④ N/A 已确认成立）；⑤ 联合发版为独立后续步骤（checklist 在 `HANDOFF.md` §12，待维护者拍板版本号取向）。本文件就此归档为历史交接记录，行为契约与机制差异的最新登记以 `docs/SPEC.md` 第 20/22 章（含 22.7）为准，发版状态以 `HANDOFF.md` §12 为准；未随发版的人工验收项见下文 §5（CTRL_CLOSE 关窗恢复、旧 conhost 目检等）。
+
 > 2026-09-26 晚会话交接。移植主体已由 dynamic workflow 完成且三棵树门禁全绿，**卡在 code-review 之前**。
 > 新对话恢复方式：读本文件 §6 执行清单，从第 1 步（code-reviewer ×3）继续。
 > 本文件是新建文件，未动任何现有文档；PLAN-GO / SPEC 22.7 / HANDOFF.md 的正式更新是评审后的待办（§6 第 3 步）。

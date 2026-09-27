@@ -145,6 +145,8 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 
 ## 11. 后续计划（2026-09-25 用户拍板）：Go 版第四实现
 
+> **2026-09-27 状态注记：本节为历史计划，已全部落地。** Go 版 M0–M4 完成（见 `docs/PLAN-GO.md` 的里程碑记录），Rust 修正对齐移植（第一批 6 项 + 第二批 4 项 + `SetConsoleCtrlHandler`）在 go/ts/ts-nodejs 三树落地并经独立 code-review 闭环（评审修复 `1c97a97`/`38e9395`/`fdd71d8`、`daae588`、`579e075`/`c584dda`、`2b62629`/`deab34f`）；M5 文档同步完成（SPEC §22.7 为 Go 版差异登记）；本节剩余可执行项仅联合发版（§12）。
+
 用户决定启动 **Go + bubbletea v2 / lipgloss** 版本（仓库第四个实现，目录约定 `go/`，行为契约仍为 `docs/SPEC.md`，版本号独立）。选型依据来自 2026-09-25 的技术栈调研（bubbletea v2.0.10 / tcell v3.5.0 均为 stable 且发版密集；单文件 exe 8–15 MB、`CGO_ENABLED=0` 交叉编译零配置；Charm 一线维护 Windows 支持；本项目的 Win32 需求在 Go 生态有现成包：`golang.org/x/sys/windows/registry` 等）。
 
 **移植顺序**（调研结论，按此执行）：
