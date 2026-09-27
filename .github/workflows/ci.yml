@@ -40,7 +40,12 @@ jobs:
         working-directory: go
         run: |
           go vet ./...
-          test -z "$(gofmt -l .)"
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
           go test ./...
           go run ./scripts/parity
 
