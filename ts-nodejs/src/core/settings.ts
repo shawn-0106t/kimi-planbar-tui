@@ -182,11 +182,14 @@ export function runValueQueryCommand(): string[] {
   return ["reg.exe", "query", RUN_KEY, "/v", RUN_VALUE];
 }
 
-/** Whether the HKCU Run value exists, judged by VALUE NAME (REVIEW-RUST
+/** True when the HKCU Run value exists, judged by VALUE NAME (REVIEW-RUST
  *  Minor 2): `reg.exe query ... /v <name>` fails whenever the name is absent,
  *  whatever its type — a manually written REG_DWORD still counts as existing,
- *  so the reconcile delete below is not skipped. */
-export function runValueExists(): boolean {
+ *  so the reconcile delete below is not skipped. Null when the probe itself
+ *  failed (reg.exe missing): a failed probe must leave the registry alone
+ *  (same contract as the ts/ edition and the Rust oracle, whose reconcile
+ *  returns early when the key cannot be opened). */
+export function runValueExists(): boolean | null {
   try {
     const cmd = runValueQueryCommand();
     const probe = spawnSync(cmd[0]!, cmd.slice(1), {
@@ -195,7 +198,7 @@ export function runValueExists(): boolean {
     });
     return probe.status === 0;
   } catch {
-    return false; // reg.exe missing: treat as absent, applyAutoStart reports nothing either way
+    return null; // reg.exe missing: probe failed, not "value absent"
   }
 }
 
@@ -214,10 +217,15 @@ export function reconcileNeedsApply(autoStart: boolean, existing: boolean): bool
  *  of truth, the HKCU Run value the executed contract. A legacy non-atomic
  *  write (or a manual registry edit) could leave the two diverged — e.g. the
  *  value stuck on `true` while settings.json fell back to AutoStart=false, so
- *  the machine kept autostarting an app whose settings screen said off. All
- *  errors silently swallowed (code-style baseline). */
+ *  the machine kept autostarting an app whose settings screen said off. A
+ *  failed probe leaves the registry alone (a "value absent" misread would
+ *  both re-point an existing value and create the whole Run key via
+ *  `reg add`, which the Rust oracle never does). All errors silently
+ *  swallowed (code-style baseline). */
 export function reconcileAutoStart(data: SettingsData, exe: string = currentExe()): void {
-  if (reconcileNeedsApply(data.autoStart, runValueExists())) {
+  const existing = runValueExists();
+  if (existing === null) return;
+  if (reconcileNeedsApply(data.autoStart, existing)) {
     applyAutoStart(data, exe);
   }
 }
