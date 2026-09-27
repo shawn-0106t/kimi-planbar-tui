@@ -70,8 +70,11 @@ function barSpans(p: Palette, ratio: number, width: number) {
 export function usageLine(p: Palette, width: number, label: string, seg: QuotaSegment | null, nowMs: number): TuiLine {
   const pctText = seg ? fmtPercent(seg.percent) : "--";
   // The column budget is PCT_W cells; truncate rather than overflow the line
-  // (a broken payload could otherwise push the reset text off-screen).
-  const pct = pctText.slice(0, PCT_W).padStart(PCT_W);
+  // (a broken payload could otherwise push the reset text off-screen). The
+  // truncation counts code points like Rust's chars().take(PCT_W) — fmtPercent
+  // is ASCII-only today, but a slice over UTF-16 units would one day split a
+  // surrogate pair (same reasoning as the reset budget below).
+  const pct = [...pctText].slice(0, PCT_W).join("").padStart(PCT_W);
   const reset = seg?.resetAt ? formatReset(seg.resetAt, nowMs) : "";
 
   const spans = [

@@ -6,9 +6,12 @@
 //
 // Run from a real terminal, or via a fresh console window:
 //   cd ts && bun --use-system-ca run scripts/verify/vt-shrink-probe.ts [out.json] [--win32]
-// --win32 additionally runs the Win32 shrink sequence (it resizes THIS console),
-// mirroring test/console-probe.ts's opt-in --shrink. The VT mode bit is
-// restored before exit so the probe leaves the console as it found it.
+// --win32 additionally runs the size escape and the Win32 shrink sequence
+// (they resize THIS console — the escape does nothing on today's ConPTY
+// hosts, which forward no window-op escapes, but a future ConPTY may start
+// forwarding them), mirroring test/console-probe.ts's opt-in --shrink. The
+// VT mode bit is restored before exit so the probe leaves the mode as it
+// found it; a console resized behind --win32 is not resized back.
 
 import { dlopen, FFIType, ptr } from "bun:ffi";
 import {
@@ -64,10 +67,11 @@ report.vtBitSetAfterEnable = after.startsWith("0x")
   ? (Number.parseInt(after, 16) & 0x0004) !== 0
   : null;
 
-// The real writer (process.stdout), as shrinkOwnedConsole would drive it.
-report.writeSizeEscapeIfVt = writeSizeEscapeIfVt((s) => process.stdout.write(s));
-
 if (doWin32) {
+  // The real writer (process.stdout), as shrinkOwnedConsole would drive it.
+  // Behind the flag only: the escape attempts an actual resize of THIS
+  // console, so default runs must stay read-only (code-review Suggestion 6).
+  report.writeSizeEscapeIfVt = writeSizeEscapeIfVt((s) => process.stdout.write(s));
   const { shrinkViaWin32 } = await import("../../src/tui/shrink.ts");
   report.shrinkViaWin32Returned = shrinkViaWin32(72, 13);
   report.sizeAfterShrink = sizeOf();
