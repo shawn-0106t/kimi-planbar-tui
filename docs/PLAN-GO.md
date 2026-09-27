@@ -39,7 +39,7 @@ Go 版是仓库第四个受支持实现，与 Rust / Node / Bun 版共享同一�
 
 > ✅ **2026-09-25 已完成**。落地实况：winget 装机 `go1.27.0 windows/amd64`（满足 bubbletea v2.0.10 的最低要求）；本机 `proxy.golang.org` 不可达，用户级 `go env -w GOPROXY=https://goproxy.cn,direct`；import path 实证为 `charm.land/bubbletea/v2@v2.0.10` + `charm.land/lipgloss/v2@v2.0.6`（与 §11 HANDOFF 调研一致），`x/sys@v0.48.0`、`go-runewidth@v0.0.30`、`goversioninfo@v1.7.0`（经 `go.mod` 的 `tool` 指令固定，`go tool goversioninfo` 可调）。`go build ./...` / `go vet ./...` 全过、空壳 exe 冒烟退出码 0；env-snapshot 已重盘（`环境依赖清单_2026-09-25.md`）。注意：依赖当前以 `// indirect` 钉在 go.mod，M1 导入后 `go mod tidy` 自动转正。
 
-1. **安装 Go 工具链**：本机当前无 Go（`go: command not found`；`C:\Users\rexxa\.kimi-code\env-snapshot\环境依赖清单_2026-09-19.md` 亦记录"Go：未安装"）。用 winget 安装最新 stable，装完按用户全局规则用 system-software-inventory skill 重新盘点快照。安装后核对 bubbletea v2 锁定版本的 `go.mod` 对 Go 的最低版本要求，不满足则升级。
+1. **安装 Go 工具链**：本机当前无 Go（`go: command not found`；`C:\Users\<user>\.kimi-code\env-snapshot\环境依赖清单_2026-09-19.md` 亦记录"Go：未安装"）。用 winget 安装最新 stable，装完按用户全局规则用 system-software-inventory skill 重新盘点快照。安装后核对 bubbletea v2 锁定版本的 `go.mod` 对 Go 的最低版本要求，不满足则升级。
 2. **脚手架**：
    - `go/go.mod`：module path 用 `github.com/shawn-0106t/kimi-planbar-tui/go`（与 `git remote -v` 一致）
    - 依赖（`go get` 并提交 `go.sum`，版本钉死）：

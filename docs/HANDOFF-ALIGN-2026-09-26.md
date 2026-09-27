@@ -64,6 +64,6 @@
   `bun run --cwd ts test`（勿裸 `bun test`，TZ 由脚本钉）；`bun run --cwd ts parity`；
   `npm --prefix ts-nodejs test`；`npm --prefix ts-nodejs run typecheck`；`npm --prefix ts-nodejs run parity`。
 - parity oracle = `rust/target/debug/kimi-planbar-tui.exe`（已验证含 1779e33 全部修复，二进制含 "q Quit" 页脚字符串）；`dist/kimi-planbar-tui-0.1.1-g1779e33.exe` 是 release 打包副本（20:49），日常 parity 不用它。
-- 若再用 workflow 的 `world.run`：npm/bun shim 会 spawn ENOENT——bun 用全路径 `C:\Users\rexxa\AppData\Roaming\npm\node_modules\bun\bin\bun.exe`；npm 用 `node "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js" --prefix ts-nodejs …`；`world.run` 第一参数必须是**内联字面量**（常量也不行）。
+- 若再用 workflow 的 `world.run`：npm/bun shim 会 spawn ENOENT——bun 用全路径 `C:\Users\<user>\AppData\Roaming\npm\node_modules\bun\bin\bun.exe`；npm 用 `node "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js" --prefix ts-nodejs …`；`world.run` 第一参数必须是**内联字面量**（常量也不行）。
 - workflow run 记录同项目任意会话可查：`ListWorkflowRuns` / `GetWorkflowRun("dwfrun-1dadbeae-e573-4e4f-b465-a3890febd404")`；报告/看板 artifact 卡片在 run 页面保留。
 - `.zcodeignore` 已存在（上批会话建的，未跟踪）。

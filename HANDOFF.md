@@ -158,7 +158,7 @@ bun run test      # 270 通过（证明测试盲区在 guard 分支）
 
 **DoD（必须含，本次事故最大教训）**：`owned-console 双击启动人肉验收`写进验收清单——自动化测试够不到独占 console 分支（2026-09-25 segfault 事故正是 270 测试全绿仍闪退）；另加 `--test-fetch` / `--test-update` 与 Rust exe 背靠背 parity 全绿、双主题人肉验收。
 
-**启动前检查**：确认 Go 工具链是否已安装（查 `C:\Users\rexxa\.kimi-code\env-snapshot\` 最新环境清单；快照 2026-09-19 未记录 Go 的话需先安装并重新盘点）。预算参考：2–4 周业余时间达 parity 全绿 + 双主题验收。
+**启动前检查**：确认 Go 工具链是否已安装（查 `C:\Users\<user>\.kimi-code\env-snapshot\` 最新环境清单；快照 2026-09-19 未记录 Go 的话需先安装并重新盘点）。预算参考：2–4 周业余时间达 parity 全绿 + 双主题验收。
 
 **定位**：Go 版与现有三版同为 SPEC 契约的受支持实现，SPEC 22 为其新开登记小节；`go/` 的构建/测试/发布条目在落地后补进 AGENTS.md 与 SPEC 第 7/19 章。
 
