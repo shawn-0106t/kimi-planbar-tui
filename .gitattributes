@@ -2,6 +2,10 @@
 *.ts text eol=lf
 *.json text eol=lf
 
+# Go sources must be LF everywhere: gofmt (Go 1.27.x) reports CRLF files as
+# unformatted, which would break the CI gate on Windows checkouts.
+*.go text eol=lf
+
 # ts/test/golden/*.txt are byte-exact fixtures emitted by the Rust oracle
 # (serde_json pretty text, chrono timestamps). Rewriting their line endings on
 # checkout would break the byte-equality assertions that pin TS to Rust, so

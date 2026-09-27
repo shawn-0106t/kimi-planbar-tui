@@ -19,12 +19,19 @@ jobs:
       run:
         shell: bash
     steps:
+      # gofmt (Go 1.27.x) rejects CRLF sources; keep the checkout LF even if
+      # the runner's global git config says otherwise (.gitattributes also
+      # pins *.go to LF).
+      - name: disable autocrlf before checkout
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27"
+          cache-dependency-path: go/go.sum
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
