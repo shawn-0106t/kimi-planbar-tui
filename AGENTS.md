@@ -174,6 +174,17 @@ go run ./scripts/probe-owned-console -exe dist/kpt-tui-go.exe -exit q|ctrlc|ctrl
 
 After changes: `cargo build` + `cargo test` (in `rust/`), then run `--test-fetch` and `--test-update` against the built exe, and eyeball the TUI in Windows Terminal under both themes. For `ts-nodejs/`, `npm test` + `npm run typecheck` + `npm run parity` must stay green. For `ts/`, `bun run test` must stay green, and any change to the startup-shrink path needs a real owned-console launch check (double-click or `start` the built exe — automated tests cannot reach that branch; this gap hid the 2026-09-25 segfault). For `go/`, `go test` + `go vet` + `gofmt -l` + `go run ./scripts/parity` must stay green, and `scripts/probe-owned-console` covers the owned-console paths (size/input/exit, and `-exit ctrlbreak` for the ctrl-handler delivery).
 
+### CI (GitHub Actions)
+
+`.github/workflows/ci.yml` runs this chapter's full local gate set on **windows-latest** (every stack reaches for Windows console APIs), triggered on push to `main` and on pull requests, in one job:
+
+- Rust: `cargo test` + `cargo build` — the debug exe is the parity oracle for the other editions.
+- Go: `go vet` + gofmt check + `go test` + `go run ./scripts/parity`.
+- Bun: `bun install` + `bun run test`; Node: `npm ci` + typecheck + tests.
+- Parity: both TS editions diffed against the Rust oracle built in the same run.
+
+Deliberately **not** in CI (same rationale as the workflow's header comment): the SPEC 20 real-console probes (they need an interactive console — the same blind spot that hid the 2026-09-25 segfault) and release packaging (version scheme + release notes are maintainer decisions). The headless self-checks are also skipped, each for its own reason: `--test-fetch` needs the local Kimi Code OAuth token, which never leaves this machine, and `--test-update` shells out to a locally installed `kimi` CLI that no runner has (its `local=` would always be empty). Note also that a pre-checkout step disables `core.autocrlf` before `actions/checkout` runs because gofmt rejects CRLF sources (`.gitattributes` pins `*.go` to LF as well).
+
 ## Release process
 
 1. Rust version bump: `rust/Cargo.toml` is the only place for the Rust exe — its VERSIONINFO FileVersion/ProductVersion derive from `CARGO_PKG_VERSION` automatically via `build.rs` (winresource). The Node edition bumps independently in `ts-nodejs/package.json`; the Bun edition bumps independently in `ts/package.json`; the Go edition bumps independently in `go/VERSION` (read via `go:embed`, fed to goversioninfo for the VERSIONINFO resource).
